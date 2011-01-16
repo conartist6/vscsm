@@ -20,7 +20,19 @@ binary for each server that was to be run. During the reorganization project the
 has been modified so that one instance of the line server can (will be able to) start or
 stop as many servers as the user wants. This simplifies communication with the web server 
 significantly, requiring only one XmlHTTP request to get information about all the running
-servers. Requires libconfig and libpthread.
+servers. Internally the setup of the application is as follows. Upon startup the app
+daemonizes by forking, terminating the parent fork, and following the child fork. This 
+ensures that the process is not a process groupd leader. Standard input, output, and error
+are redirected. Next the configurations are read. At this point a new thread is started.
+Thread 1 proceeds to query each running server in order and add as much output as is
+available to the buffer for that server. The second thread immediately blocks for input
+on the communication pipe for the server. Any time a command is written to that pipe
+(presumably by the webserver, but it works just as well to issue commands by hand and 
+cat output from the pipe), the server unblocks and processes it. A custom command is
+defined for starting processes which creates the appropriate pipe pairs (out and err
+are combined) and forks. A new proces group is created for each server started, and that
+id is stored for later interaction with that server/server group. 
+Requires libconfig and libpthread.
 
 web/index.php
 The javascript in the index page is responsible for maintaining a system of objects 
