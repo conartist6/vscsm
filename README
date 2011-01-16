@@ -1,0 +1,43 @@
+Welcome to the Very Simple Console Server Manager.
+This is a work in progress, there is no clear way to compile it,
+and although a functional version of the project exists somewhere,
+I broke the code because it desparately needed massive reorganization.
+
+The goal of this project is to provide a highly flexible application for managing console
+servers online. While the project was started with the intent of facilitating the,
+the execution and management of game servers like the source dedicated server, the project
+is meant to be much more general purpose, and ought to evolve a bit along the lines of a web
+version of the GNU screen utility. It eventually ought to support some sort of encryption
+for client server communication.
+
+The project is set up like so:
+
+startserv:
+This is the line server for the project. Its purpose is to start other server programs and 
+collect their output. In the first draft of the project it functioned basically as an 
+advanced script for starting a program, such that it was necessary to have a different 
+binary for each server that was to be run. During the reorganization project the application 
+has been modified so that one instance of the line server can (will be able to) start or
+stop as many servers as the user wants. This simplifies communication with the web server 
+significantly, requiring only one XmlHTTP request to get information about all the running
+servers. Requires libconfig and libpthread.
+
+web/index.php
+The javascript in the index page is responsible for maintaining a system of objects 
+representative or the running servers, crafting AJAX requests, and displaying the responses 
+in an appropriate manner. It will also eventually have a configuration interface so that new
+servers/sessions can be configured from the frontend instead of the backend. Some amount
+of resource usage tracking has also been added to this page. Processor usage is currently
+tracked for as many processors as the server has. Memory usage will come soon.
+Requires JQuery and Flot.
+
+web/srvcommand.php
+Ajax page to construct requests to the line server. The format of these requests should be
+something like for, say, for
+Start the countersrike srouce server with name css
+s@css
+or to print new output from all servers
+p@
+
+Author Conrad J. Buck
+conartist6 at gmail dot com

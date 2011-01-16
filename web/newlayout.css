@@ -1,0 +1,251 @@
+body{
+    margin: 0px;
+    padding: 11px 6px 6px 6px;
+    overflow: hidden;
+}
+.bodyinset{
+}
+.pagetop{
+    /*background-color: #755;*/
+}
+.runningservers{
+    float: left;
+}
+.servertabs{
+    height: 38px;
+}
+.serveroutputpane{
+    min-height: 94px;
+
+    background-color: #CCC;
+
+    overflow: hidden;
+}
+.colorstatus{
+    height: 6px;
+}
+.serveroutput{
+    position: relative;
+    float: left;    
+}
+.serveroutput div{
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    
+    padding: 2px 2px 2px 6px;
+    
+    overflow-x:hidden;
+    overflow-y: scroll; 
+    background-color: #CCC;
+}
+.pagetop{
+    
+}
+.pagemidcolor{
+    float: right;
+
+    width: 6px;
+    height: 100%;
+    
+    background-color: #3CCB11;
+}
+.pagetopright{
+    position: relative;
+
+    width: 255px;
+    float: right;
+
+    padding-left: 10px;
+}
+.hoststatus{
+    height: 150px;
+    padding: 1px 2px 2px 4px;
+
+    background-color: #CCC;
+}
+.loadgraphcanvas{
+    height: 110px;
+    width: 247px;
+    
+    /*background-color: #AAA;*/
+}
+.serverstatusbox{
+    position: absolute;
+    bottom: 0px;
+
+    height: 360px;
+    width: 255px;
+
+    background-color: #CCC;
+}   
+.serverstatuscolor{
+    float: left;
+
+    width: 6px;
+    height: 100%;
+    
+    background-color: #3CCB11;
+}
+.serverstatus{
+    float: left;
+
+    height: 321px;
+    width: 249px;
+}
+.singleserverstat{
+    position: absolute;
+    /*float: left;*/
+    height: 317px;
+    width: 241px;
+    padding: 5px 3px 3px 5px;
+
+    background-color: #CCC;
+}
+.servername{
+    text-align: center;
+    font-weight: bold;
+
+    height: 25px;
+}
+.daemoncontrol{
+    position: absolute;
+    bottom: 0px;
+    left: 6px;
+
+    height: 35px;
+    width: 249px;
+    background-color: #888;
+    text-align: center;
+}
+.servercontrols{
+    float: left;
+    padding: 5px;
+}
+.pagebottom{
+    padding-top: 6px;
+}
+.inputbox{
+    /*margin-top: 6px;*/
+}
+.servercommand{
+    float: left;
+}
+.submitbuttonbox{
+    float: right;
+
+    width: 72px;
+}
+.submitbutton{
+    float: right;
+}
+.sendbutton{
+}
+@font-face{
+    font-family: bitmappish;
+    src: url(adore64.ttf) format("truetype");
+}
+
+.green{
+    background-color: #3CCB11;
+}
+.brightgreen{
+    background-color: #99FF00;
+}
+.red{
+    background-color: #E06059;
+}
+
+.brightred{
+    background-color: #FF4444;
+}
+
+.tab{
+    float: left;
+
+    height: 38px;
+    margin-right: 3px;
+    padding-left: 10px;
+    background-repeat: no-repeat;
+    background-position: left;
+
+    cursor: pointer;
+}
+/*.tab:after {
+    content: ".";
+    display: block;
+    height: 0;
+    clear: both;
+    visibility: hidden;
+}*/
+.tabstoppedactive div, .tabstoppedinactive div,
+.tabrunningactive div, .tabrunninginactive div{
+    height: 100%;
+    padding-right: 10px;
+    background-repeat: no-repeat;
+    background-position: right;
+}
+.tabstoppedactive div div, .tabstoppedinactive div div,
+.tabrunningactive div div, .tabrunninginactive div div{
+    height: 100%;
+    font-size: 30px;
+    font-family: sans-serif;
+    padding: 0;
+}
+/*.tabstoppedactive div div:after, .tabstoppedinactive div div:after,
+.tabrunningactive div div:after, .tabrunninginactive div div:after {
+    content: ".";
+    display: blocbk;
+    height: 0;
+    clear: both;
+    visibility: hidden;
+}*/
+.tabstoppedactive{
+    background-image: url('img/tableftbrred.png');
+}
+.tabstoppedactive div div{
+    background-color: #FF4444; /*bright red*/
+}
+.tabstoppedactive div{
+    background-image: url('img/tabrightbrred.png');
+}
+.tabstoppedinactive{
+    background-image: url('img/tableftred.png');
+}
+.tabstoppedinactive div div{
+    background-color: #E06059; /*red*/
+}
+.tabstoppedinactive div{
+    background-image: url('img/tabrightred.png');
+}
+.tabrunningactive{
+    background-image: url('img/tableftbrgreen.png');
+}
+.tabrunningactive div div{
+    background-color: #99FF00; /*bright green*/
+}
+.tabrunningactive div{
+    background-image: url('img/tabrightbrgreen.png');
+}
+.tabrunninginactive{
+    float: left;
+    background-image: url('img/tableftgreen.png');
+}
+.tabrunninginactive div div{
+    background-color: #3CCB11; /*green*/
+}
+.tabrunninginactive div{
+    background-image: url('img/tabrightgreen.png');
+}
+
+.daemonbutton{
+    margin: 6px 8px 0 8px;
+}
+
+.clear:after {
+    content: ".";
+    display: block;
+    height: 0;
+    clear: both;
+    visibility: hidden;
+}
