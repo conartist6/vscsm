@@ -7,11 +7,14 @@
 #include <signal.h>
 #include <pthread.h>
 #include <libconfig.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
-#define UNIQSEP "8b&2^*m7"
 #define DBGOUT(a) fprintf(stderr, "%s\n", a), fflush(stderr);
 #define ERR_START_ALREADY_RUNNING 2
+#define ERR_STOP_NOT_STARTED 3
 #define ERR_NO_SUCH_SERVER 1
+#define ERR_SUCCESS 0
 
 typedef struct{
     char *line;
@@ -57,7 +60,8 @@ typedef struct{
     int used;
 }sbuf;
 
-const char *errormsgs[] = {"Success", "No server with that name", "Server was already running"};
+const char *errormsgs[] = {"Success", "No server with that name", "Server was already running"
+    , "Server was not running"};
 
 int child();
 static void* ioHandler(void*);
@@ -122,9 +126,9 @@ int main(){
 	    break;
 	case 0:
 	    /*child*/
-            freopen("./vscsm2.log", "w", stdout);
+            freopen("../vscsm2.log", "w", stdout);
 	    freopen("/dev/null", "r", stdin);
-	    freopen("./vscsm.log", "w", stderr);    
+	    freopen("../vscsm.log", "w", stderr);    
 	    
 	    sid = setsid();
 	    if(sid == -1){
@@ -142,7 +146,7 @@ int main(){
 	    graceful.sa_flags = 0x0;
 
 	    sigaction(SIGINT, NULL, &oldaction);  //All signals lead to a graceful shutdown!
-	    if(oldaction.sa_handler != SIG_IGN){
+	    if(oldaction.sa_handler != SIG_IGN){  //Ha ha ha.
 		sigaction (SIGINT, &graceful, NULL);
 	    }
 	    sigaction(SIGHUP, NULL, &oldaction);
@@ -185,7 +189,7 @@ int child(){
     lockfile = fopen("/mnt/memory/vscsm_lineserver.lock", "w");
     if(lockfile == NULL){
 	fprintf(stderr, "Could not open lockfile!\n");
-	exit(5);
+	terminate();
     }
     fprintf(lockfile, "%i\n", getpid());
     fclose(lockfile);
@@ -195,11 +199,11 @@ int child(){
     config_t cfg;
     config_init(&cfg);
 
-    if(! config_read_file(&cfg, "vscsm.cfg")){
+    if(! config_read_file(&cfg, "../etc/vscsm.cfg")){
 	fprintf(stderr, "%s:%d - %s\n", config_error_file(&cfg),
 		config_error_line(&cfg), config_error_text(&cfg));
 	config_destroy(&cfg);
-	return(12);
+	terminate();
     }
 
     DBGOUT("parsed config!")
@@ -497,7 +501,7 @@ static void* ioHandler(void* t){
 
 	DBGOUT("blocking for next instruction")
 
-	pipedes = open("./io", O_RDONLY); //blocking open
+	pipedes = open("/tmp/vscsm_fifo", O_RDONLY); //blocking open
 	if(!pipedes){
 	    DBGOUT(strerror(errno))
 	}
@@ -539,7 +543,7 @@ static void* ioHandler(void* t){
 	FILE *pipe; 
 	errno=0;   
 	
-	//while((pipeint = open("./io", O_WRONLY | O_NONBLOCK)) == -1){}
+	//while((pipeint = open("/tmp/vscsm_fifo", O_WRONLY | O_NONBLOCK)) == -1){}
 
 	switch(opcode){
 	    //opcodes:
@@ -552,7 +556,8 @@ static void* ioHandler(void* t){
 	    // 'h': HUP -- reload the config file
 	    case 'p':
 		{
-		    pipedes = open("./io", O_WRONLY);   
+		    //if running, prefix line like p@css 13 cod 2@
+		    pipedes = open("/tmp/vscsm_fifo", O_WRONLY);   
 		    pipe = fdopen(pipedes, "w");
 
 		    fprintf(pipe, "p@");
@@ -592,24 +597,23 @@ static void* ioHandler(void* t){
 			    break;
 			}
 		    }
-		    DBGOUT(&instruction[2])
+		    //DBGOUT(instruction[2])
 		    for(j=0; j<servlist.size; j++){
-			if(!strncmp((const char*)&instruction[2],
+			if(!strncmp((const char*)instruction + 2,
 				    (const char*)servlist.list[j]->gsn,
-				    (int)(endgn - instruction[2]))){
-			    s=servlist.list[j]; 
+				    (int)(endgn - instruction - 2))){
+			    s=servlist.list[j];
+			    break; 
 			}
 		    }
 		    if(s){
-			msgint = startServer(servlist.list[j]);
+			msgint = startServer(s);
 			//msgint = 0;
-			pipedes = open("./io", O_WRONLY);   
-			pipe = fdopen(pipedes, "w");
+			pipe = fopen("/tmp/vscsm_fifo", "w"); 
 		       	fprintf(pipe, "%s", errormsgs[msgint]); 	
 		    }
 		    else{
-			pipedes = open("./io", O_WRONLY);   
-			pipe = fdopen(pipedes, "w");  
+			pipe = fopen("/tmp/vscsm_fifo", "w");   
 			fprintf(pipe, "%s", errormsgs[ERR_NO_SUCH_SERVER]);   
 		    }
 		}
@@ -617,7 +621,7 @@ static void* ioHandler(void* t){
 	    case 'o':
 		{
 		    console_server_t *s = NULL;
-                    char *engdn;
+                    char *endgn;
 		    int j;
 
  		    for(i=2; i<instbufsz; i++){
@@ -626,27 +630,40 @@ static void* ioHandler(void* t){
 			    endgn = &instruction[i];
 			    break;
 			}
+			
 		    } 
 		    //get server from short name
                     for(j=0; j<servlist.size; j++){
-			if(!strncmp((const char*)&instruction[2],
+			if(!strncmp((const char*)instruction + 2,
 				    (const char*)servlist.list[j]->gsn,
-				    (int)(endgn - instruction[2]))){
+				    (int)(endgn - instruction - 2))){
 			     s = servlist.list[j]; 
-			     goto found; 
+			     break; 
 			}
 		    } 
-
-		    //if running
-		    
-		    //close descriptors.
-
-		    //issue gourp kill to neg pid of process group of leader.
+                    pipe = fopen("/tmp/vscsm_fifo", "w");
+		    if(s && s->isrunning){//if running		    
+			close(s->rd_des);//close descriptors.
+			close(s->wr_des);
+			fprintf(stderr, "Killing process group %i.\n", s->isrunning), fflush(stderr); 
+			kill(0 - s->isrunning, SIGTERM);
+			int status;
+			waitpid(s->isrunning, &status, 0);
+			fprintf(stderr, "Process %i exited with status %i\n", s->isrunning, status), fflush(stderr);
+                        s->isrunning = 0; //issue group kill to neg pid of process group of leader.
+			fprintf(pipe, "%s", errormsgs[ERR_SUCCESS]);
+		    }
+		    else if (s){
+			fprintf(pipe, "%s", errormsgs[ERR_STOP_NOT_STARTED]);//server not running.
+		    }
+		    else{
+			fprintf(pipe, "%s", errormsgs[ERR_NO_SUCH_SERVER]);
+		    }
 		}
 		break;
 	    case 'l':
 		{
-		    pipedes = open("./io", O_WRONLY);   
+		    pipedes = open("/tmp/vscsm_fifo", O_WRONLY);   
 		    pipe = fdopen(pipedes, "w");
 
 		    fprintf(pipe, "l@");
@@ -680,7 +697,7 @@ void getInput(){
     int cpos = -1;
     fflush(stderr);
     errno = 0;
-    pipe = open("./io", O_RDONLY);
+    pipe = open("/tmp/vscsm_fifo", O_RDONLY);
     if(!pipe){
 	DBGOUT(strerror(errno))
     }
@@ -788,6 +805,7 @@ int rwPOpen(char *const argv[], int *rd, int *wt){
 	    //dup2(STDIN_FILENO, STDERR_FILENO); //Merge stdout and stderr.
             //freopen("/dev/null", "w", stderr); //or just close stderr. This should be an option!
             //otherwise this process still shares stderr with its parent! 
+            //Deprecated by above dup2
 
 	    execvp(*argv, argv);
 	    exit(0);
@@ -808,6 +826,7 @@ int rwPOpen(char *const argv[], int *rd, int *wt){
 
 void terminate(){
     //printf("TERMINATING\n");
+    unlink("/mnt/memory/vscsm_lineserver.lock");
     exit(0);
 }
 

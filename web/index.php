@@ -20,6 +20,7 @@
 	this.tabName=tabname;
 	/* Should look good on a tab */
 	this.shortN=this.tabName.replace(/[ :;.,]/g,"").toLowerCase(); 
+	//SHORTN MUST NOT BE A LONE DIGIT PLZTHX. Don't use, say '1'.
 	this.running=false;
 	//this.buffer=null;
 	this.serverNo=0;
@@ -31,6 +32,7 @@
 	this.mapselectable=false;
 	this.mapChangeCmd = null;
     }
+
     Server.prototype.selectmap = function(){
 	    var mapsel = document.getElementById('mapSelector' + this.serverNo);
 	    var seltxt = document.getElementById('changeS' + this.serverNo).firstChild;
@@ -45,6 +47,7 @@
 		seltxt.innerHTML = "change";
 	    }		
     }
+
     Server.prototype.changemap = function(mapname){
 	    //alert("changing map");
 	    if(this.mapChangeCmd == null) return;
@@ -54,7 +57,8 @@
 		sendThisCommand(line);
 	    }
 	    this.selectmap();
-    } 
+    }
+
     function Host(){
 	this.ipaddr = <?php
 exec("ifconfig eth0 | grep 'inet addr:'|" .
@@ -81,6 +85,7 @@ echo json_encode($np);
 	    this.graphObj[i].color = "rgb(255,215,0)";
 	}
     }
+
     usageGraph.prototype.addLoad = function(load){
 	for(var i=0; i<host.nprocs; i++){
 	    if(this.graphObj[i].data.length >= 40){
@@ -100,6 +105,7 @@ echo json_encode($np);
 	}
 	this.tOffs++;	
     }
+
     usageGraph.prototype.renderGraph = function(){
 	var ug = host.usageGraph;
 	var go = ug.graphObj;
@@ -114,20 +120,24 @@ echo json_encode($np);
 	    yaxis: { min: 0, max: 100, ticks: 5 }
 	    });
 
-    } 
+    }  
+
+    addServer = function(s){
+	    serverList[s.shortN] = s;
+    }	
 
     function pageLoad(){
 	resizeLayout();
 
-	serverList = new Array();
-
-	serverList.push(new Server("Counter-Strike: Source",
+	serverList = new Array(); 
+	
+	addServer(new Server("Counter-Strike: Source",
 	    "cs:s", "/usr/local/srcds_l/orangebox/"));
-	serverList.push(new Server("Call of Duty II", "cod2", "/usr/local/cod2_ds/"));
-	serverList.push(new Server("Minecraft", "mcraft", "/usr/local/minecraft_ds/"));
-	serverList.push(new Server("Ventrillo", "vent", "/usr/local/ventsrv/"));
-        loadCfg(serverList[0]); 
-	loadCfg(serverList[1]);
+	addServer(new Server("Call of Duty II", "cod2", "/usr/local/cod2_ds/"));
+	addServer(new Server("Minecraft", "mcraft", "/usr/local/minecraft_ds/"));
+	addServer(new Server("Ventrillo", "vent", "/usr/local/ventsrv/"));
+        //loadCfg(serverList[0]); 
+	//loadCfg(serverList[1]);
 	populateTabs();
 	appendNewLines();
 
@@ -135,6 +145,7 @@ echo json_encode($np);
 
 	updateHostGraph();
     }
+
     function updateHostGraph(){
 	var xmlhttp; 
 	if(window.XMLHttpRequest){
@@ -162,7 +173,10 @@ echo json_encode($np);
 	xmlhttp.send();
 	//alert(xmlhttp.responseText);
 
-    }                                                              
+    }
+
+    //config files should definitely be JSON instead of this crap, or at least parsed into JSON
+    //by the backend.
     function loadCfg(server){
         var xmlhttp, responses; 
 	if(window.XMLHttpRequest){
@@ -203,21 +217,16 @@ echo json_encode($np);
 		}
 	    }
 	}
-    } 
-    function appendNewLines(){
-	var server;
-	for(var i in serverList){
-	    server = serverList[i];
-	    if(server.running){
-		doAppendNewLines(server);
-	    }
-	}
-	setTimeout("appendNewLines()", 1000);
     }
-    function doAppendNewLines(server){
+
+    function appendNewLines(){
+	//setTimeout("appendNewLines()", 1000);
+	//doAppendNewLines();
+    }
+
+    function doAppendNewLines(){
 	var o, sp0, s, gss;
 
-	o = document.getElementById('server' + server.serverNo + 'Output');
 	s = document.getElementById('serverStatus');
 
 	var xmlhttp, response; 
@@ -228,45 +237,84 @@ echo json_encode($np);
 	    xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
 	}
 	//alert(server.tabName);
-	xmlhttp.open("GET","getlines.php?game=" + server.shortN, false);
+	xmlhttp.open("GET","srvcommand.php?command=p&game=" + server.shortN, false);
 	xmlhttp.send();
-	//alert(server.wasRunning);                                                                     
-	if((gss = xmlhttp.getResponseHeader('Game-Server-Status')) == "Running"){
-	    if(server.wasRunning == false){		//Should maybe be moved somewhere else?
-		server.running = true;			//This should be the only looped code checking
-		setTabRunning(server.serverNo, true);  	//if a server is or is not really running	
-		server.wasRunning = true;
-	    }
-	    //alert("\"" + gss + "\"");	    
-	    response = xmlhttp.responseText;
-            //alert(response);
+	//alert(server.isRunning);                                                                     
 
-	    var cl = parseInt(response.substring(0, 8), 10);
-	    //alert("cl: " + response.substring(0,8));
-	    if(cl > 0){	
-		lens.push(cl);
-		//alert("countlines: " + countLines());	
-		while(countLines() > 400){
-		    //alert("countl: " + countLines());
-		    sp0 = o.firstChild;
-		    sp0.parentNode.removeChild(sp0);
-		    //alert("Tried to remove a child. Did it work?");
-		    lens.shift(); 
-		}
-		//alert(response);
-		o.innerHTML += "<span>\n" + response.substring(8) + "</span>";
-		o.scrollTop = o.scrollHeight;
+        response=xmlhttp.responseText;
+
+	//Get portion of string after p@
+	var endl = response.indexOf('\n');
+	var runningSrvs;
+ 	//alert(response.length); 
+	if(endl != -1 && response.length > 2){ // 2?
+	    runningSrvs = response.substring(2, endl-1).split();	    
+	}
+	else return;	//if it is empty then return
+	
+	//alert(runningSrvs);
+	//otherwise for each word, get next word as number of lines, append that number of lines.
+
+ 	while(runningSrvs[0] != undefined){
+	    //converts an array of string pairs to an array of strings indexed by shortN's.
+	    runningSrvs[runningSrvs[0]] = runningSrvs[1];
+	    runningSrvs.shift();
+	    runningSrvs.shift();
+	}
+	linestart = response.indexOf('\n') + 1;
+	response = response.substring(linestart);
+	//we should now have only lines of server reponse data and info on whose they are.
+
+
+	for(serverN in serverList){
+	    var server = serverList[serverN];            //Loop thru ALL servers
+	    if(runningSrvs[server.shortN] != undefined){ //If this server's name was part of the running list...
+		server.running = true;			 //This should be the only looped code checking
+		setTabRunning(server);  	 //if a server is or is not really running	
+		server.wasRunning = true;
+	    }	    
+                /*
+		//alert("cl: " + response.substring(0,8));
+		if(cl > 0){	
+		    lens.push(cl);
+		    //alert("countlines: " + countLines());	
+		    while(countLines() > 400){
+			//alert("countl: " + countLines());
+			sp0 = o.firstChild;
+			sp0.parentNode.removeChild(sp0);
+			//alert("Tried to remove a child. Did it work?");
+			lens.shift(); 
+		    }
+		    //alert(response);
+		    o.innerHTML += "<span>\n" + response.substring(8) + "</span>";
+		    o.scrollTop = o.scrollHeight;
 	    }	
-	}
-	else{
-	    if(server.wasRunning == true){
-		server.running = false;
-		setTabRunning(server.serverNo, false);
-		server.wasRunning = false;
+	*/
+	    else{
+		if(server.wasRunning == true){
+		    server.running = false;
+		    setTabRunning(server);
+		    server.wasRunning = false;
+		}
+		//alert("\"" + gss + "\"");	    
 	    }
-	    //alert("\"" + gss + "\"");	    
 	}
+
+	for(var i in runningSrvs){
+	    var o, server;
+	    linestart = 0;
+	    server = serverList[i]; //Is this ok? It SHOULD be.
+	    o = document.getElementById('server' + server.serverNo + 'Output');
+	    for(var j=0; j<runningSrvs[i]; j++){
+		//find the j'th newline
+		linestart = response.indexOf('\n');
+	    }
+	    o.innerHTML += "<span>\n" + response.substring(0, linestart) +"</span>\n";
+	    o.scrollTop = o.scrollHeight;
+	    response = response.substring(linestart + 1);
+	}    
     }
+
     function sendCommand(){
 	var command, cbox;
 	//alert(activeServer);
@@ -275,6 +323,7 @@ echo json_encode($np);
 	cbox.value = "";
         sendThisCommand(command);
     }
+
     function sendThisCommand(command){
 	var server = serverList[activeServer]; 
       	command = command.replace(" ", "%20");
@@ -298,11 +347,13 @@ echo json_encode($np);
 	/*alert(xmlhttp.responseText);*/
 	return false; 
     }
+
     function clearBuffer(){
 	var o = document.getElementById('serverOutput');
 	o.innerHTML = "";
 	lens.splice(0,lens.length);
     }
+
     function countLines(){
 	var count, i;
 	count = 0;
@@ -316,13 +367,17 @@ echo json_encode($np);
 	//alert("count: " + count);
 	return count;
     }
+
     function showStats(){
 	alert("countLines(): " + countLines());
     }
+
     function scrollToDivBottom(){
 	var scrollHeight = Math.max(this.scrollHeight, this.clentHeight);
        	this.scrollTop = scrollHeight - this.clientHeight;
+
     }
+
     function modServer(startStr, serverNo){
 	var start, server;
 	server = serverList[serverNo];
@@ -373,12 +428,14 @@ echo json_encode($np);
     function populateTabs(){
 	var stabs = document.getElementById('serverTabs');
 	stabs.innerHTML="";
+	var count = 0;
+
 	for(var i in serverList){
 	    var server = serverList[i];
 	    var newDiv = document.createElement('div');
 	    newDiv.setAttribute('class', 'tab');
 	    newDiv.setAttribute('onClick',
-		    'changeActiveServer(' + i + ')');
+		    'changeActiveServer("' + i + '")');
 
 	    var newTab = document.createElement('div');
 	    newDiv.appendChild(newTab);
@@ -394,7 +451,7 @@ echo json_encode($np);
 	    newDiv.setAttribute('id', 'server' + i + 'Output');
 	    newDiv.setAttribute('style', 'z-index: 0;');
 	    
-	    server.serverNo = i;
+	    server.serverNo = count;
             op.appendChild(newDiv);
 
             var ss = document.getElementById('serverStatus');
@@ -446,76 +503,115 @@ echo json_encode($np);
 		tmp.appendChild(tmp3);
 		document.getElementById('server' + i + 'Status').appendChild(tmp);
 	    }
-
-
-
-	    var xmlhttp; 
-	    if(window.XMLHttpRequest){
-		xmlhttp = new XMLHttpRequest();
-	    }
-	    else{
-		xmlhttp = new ActiveXObject("Microsoft.XMLHTTP");
-	    }
-	    xmlhttp.open("GET",
-		"getlines.php?game=" +
-		serverList[i].shortN
-		+ "&onlyHeaders=true", false);
-	    xmlhttp.send();
-	    switch(xmlhttp.getResponseHeader('Game-Server-Status')){
-	    case "Running":
-		serverList[i].running = true;
-		setTabRunning(i, true);
-		break;
-	    case "Stopped":
-		setTabRunning(i, false);
-		break;
-	    }
+            count++;
 	}
-	changeActiveServer(0); 
-    }
-    function changeActiveServer(tabNumber){
-	var oldActive = activeServer;
-	activeServer = tabNumber;
-	if(serverList[activeServer].running){
-	    setTabRunning(tabNumber, true);
+	
+	var xmlhttp; 
+	if(window.XMLHttpRequest){
+	    xmlhttp = new XMLHttpRequest();
 	}
 	else{
-	    setTabRunning(tabNumber, false);
+	    xmlhttp = new ActiveXObject("Microsoft.XMLHTTP");
 	}
-	setTabRunning(oldActive, serverList[oldActive].running);
-	//var sn = document.getElementById('serverName');
-	//sn.innerHTML=serverList[tabNumber].fullName;
+	xmlhttp.open("GET",
+	    "srvcommand.php?cmd=l", true);
+	xmlhttp.onreadystatechange=function(){
+	    if(xmlhttp.readyState == 4){
+		if(xmlhttp.status == 200){
+		    var response = xmlhttp.responseText;
+		    if(response.length > 2){
+			var runningSrvs = response.substring(2).split();
 
-	var ssold = document.getElementById('server' + oldActive + 'Status');
+			while(runningSrvs[0] != undefined){
+			    //converts an array of string pairs to an array of strings indexed by shortN's.
+			    runningSrvs[runningSrvs[0]] = true;
+			    runningSrvs.shift();
+			}
+			//alert(runningSrvs);
+			var server;
+			for(i in serverList){
+			    server = serverList[i];
+			    if(runningSrvs[i] != undefined){
+				server.running = true;
+				//setTabRunning(server);
+			    }
+			    /*else{
+				setTabRunning(server);
+			    }*/
+			    setTabRunning(server);
+			}    
+		    } 
+		}
+		else if(xmlhttp.status == 503){
+		    //no line server is running
+		    //alert("lineserver not running.");
+		    for(i in serverList){
+			//serverList[i].running = false; (should be set by default!)
+			setTabRunning(serverList[i]);
+		    }
+		}
+	    }
+	}
+	xmlhttp.send();
+	
+	var count = false;
+	for(i in serverList){
+	    if(!count){ //Grab the first index out of the iterator.
+		//changeActiveServer(serverList[i]);
+	    }
+	    else break;
+	} 
+    }
+
+    function changeActiveServer(server){
+	//tabNumber = server.serverNo;
+	//we gotta take a string or a server and get a server either way.
+	if(server.split){
+	    server = serverList[server];
+	}
+	var oldActive = activeServer;
+	activeServer = server;
+	setTabRunning(activeServer);
+	if(oldActive){
+	    setTabRunning(oldActive);
+	}
+
+	var ssold = document.getElementById('server' + oldActive.serverNo + 'Status');
 	ssold.setAttribute('style', 'z-index: 0;');
- 	var ssnew = document.getElementById('server' + tabNumber + 'Status'); 
+ 	var ssnew = document.getElementById('server' + tabNumber.serverNo + 'Status'); 
 	ssnew.setAttribute('style', 'z-index: 10;');
 
-	var soold = document.getElementById('server' + oldActive + 'Output');
+	var soold = document.getElementById('server' + oldActive.serverNo + 'Output');
 	//soold.style.zIndex = '0';
 	soold.setAttribute('style', 'z-index: 0;');
-	var sonew = document.getElementById('server' + tabNumber + 'Output');
+	var sonew = document.getElementById('server' + tabNumber.serverNo + 'Output');
 	//alert('server' + tabNumber + 'Output');
 	//soold.style.zIndex = '10';
 	sonew.setAttribute('style', 'z-index: 10;');
-
     }
-    function setTabRunning(tab, running){
-    //alert(tab);
+
+    function setTabRunning(server){
+	//alert(server);
+	//alert(server.serverNo);
+	var tab = server.serverNo;
 	var clas, tabref;
 	clas = "tab clear tab";
-	if(running) clas += "running";
+	if(server.running) clas += "running";
 	else clas += "stopped";
-	if(tab == activeServer){
+	if(server == activeServer){
 	    clas  += "active";
-	    setBorderColors(running);
+	    setBorderColors(server.running);
 	}
 	else clas += "inactive";
 
+	//alert("Server: " + server);
+	//alert(server.serverNo);
 	tabref = document.getElementById('serverTabs').childNodes[tab];
+	//alert(tabref);
 	tabref.setAttribute('class', clas);
 
     }
+
     function setBorderColors(isRunning){
 	var cs = document.getElementById('colorStatus');
 	var ssc = document.getElementById('serverStatusColor');
@@ -531,16 +627,20 @@ echo json_encode($np);
 	    pmc.setAttribute('class', 'pagemidcolor brightred');
 	}
     }
+
     function resizeLayout(){
 	setTopHalfHeight();
 	setRunningServersWidth();
     }
+
     function getWindowHeight(){
         return window.innerHeight;
     }
+
     function getWindowWidth(){
         return window.innerWidth;
     }
+
     function setTopHalfHeight(){
 	var sop = document.getElementById('serverOutputPane');
 	var ptr = document.getElementById('pageTopRight');
@@ -550,6 +650,7 @@ echo json_encode($np);
 	so.style.height = wh - 12 - 38 - 40 - 6 - 4;
 	ptr.style.height = wh - 12 - 40;
     }
+
     function setRunningServersWidth(){
 	var rs = document.getElementById('runningServers');
 	var so = document.getElementById('serverOutput');
@@ -558,6 +659,7 @@ echo json_encode($np);
 	so.style.width = ww - 255 - 10 - 12 - 6 - 8;
 	setInputBoxWidth(ww - 12);
     }
+
     function setInputBoxWidth(pageWidth){
 	var sc = document.getElementById('serverCommand');
 	var boxpx = pageWidth - 72;
@@ -604,7 +706,9 @@ echo json_encode($np);
 			<input type="button" value=" Stop "
 			    class="daemonbutton"
 				    onclick='modServer("stop", activeServer)'>
-			<input type="button" value=" Restart " class="daemonbutton">
+			<!--<input type="button" value=" Restart " class="daemonbutton">-->
+			<input type="button" value=" Print " class="daemonbutton"
+				    onclick='appendNewLines()'>
 		    </div>
 		</div>
 	    </div>
