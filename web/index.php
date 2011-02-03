@@ -221,7 +221,7 @@ echo json_encode($np);
 
     function appendNewLines(){
 	//setTimeout("appendNewLines()", 1000);
-	//doAppendNewLines();
+	doAppendNewLines();
     }
 
     function doAppendNewLines(){
@@ -236,19 +236,28 @@ echo json_encode($np);
 	else{
 	    xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
 	}
-	//alert(server.tabName);
-	xmlhttp.open("GET","srvcommand.php?command=p&game=" + server.shortN, false);
-	xmlhttp.send();
-	//alert(server.isRunning);                                                                     
+	xmlhttp.open("GET","srvcommand.php?cmd=p", false);
+	xmlhttp.send();                                                                     
 
         response=xmlhttp.responseText;
 
+	//completely empty response:
+	// p@
+	//lineless response would be:
+	// p@css 0 mcraft 0
+	// normal response would be:
+	// p@css 5 mcraft 1 vent 0
+
+
 	//Get portion of string after p@
 	var endl = response.indexOf('\n');
+	//alert(response);
+	//alert("endl: "+ endl);
+	//alert(response.substring(2, endl));
 	var runningSrvs;
  	//alert(response.length); 
 	if(endl != -1 && response.length > 2){ // 2?
-	    runningSrvs = response.substring(2, endl-1).split();	    
+	    runningSrvs = response.substring(2, endl).split(" ");	    
 	}
 	else return;	//if it is empty then return
 	
@@ -261,6 +270,11 @@ echo json_encode($np);
 	    runningSrvs.shift();
 	    runningSrvs.shift();
 	}
+
+        /*for(var rs in runningSrvs){
+	    alert("runningSrvs["+rs+"] = " + runningSrvs[rs]);
+	}*/ 
+
 	linestart = response.indexOf('\n') + 1;
 	response = response.substring(linestart);
 	//we should now have only lines of server reponse data and info on whose they are.
@@ -295,16 +309,15 @@ echo json_encode($np);
 		    server.running = false;
 		    setTabRunning(server);
 		    server.wasRunning = false;
-		}
-		//alert("\"" + gss + "\"");	    
+		}	    
 	    }
 	}
 
-	for(var i in runningSrvs){
+	for(var i in runningSrvs){ //this is probably no longer in any particular order! :/
 	    var o, server;
 	    linestart = 0;
 	    server = serverList[i]; //Is this ok? It SHOULD be.
-	    o = document.getElementById('server' + server.serverNo + 'Output');
+	    o = document.getElementById(i + 'Output');
 	    for(var j=0; j<runningSrvs[i]; j++){
 		//find the j'th newline
 		linestart = response.indexOf('\n');
@@ -378,9 +391,8 @@ echo json_encode($np);
 
     }
 
-    function modServer(startStr, serverNo){
-	var start, server;
-	server = serverList[serverNo];
+    function modServer(startStr, server){
+	var start, server, cmd;
 	if(startStr == "start"){
 	    //Don't start a server which is already started, etc.
 	    start = true;
@@ -388,12 +400,14 @@ echo json_encode($np);
 		return;
 	    }
 	    server.running = true;
+	    cmd = "s";
 	}
 	else if(startStr == "stop"){
 	    start = false;
 	    if(server.running == false){
 		return;
 	    }
+	    cmd = "o";
 	}
 	else{
 	    alert("Not start or stop");
@@ -406,20 +420,13 @@ echo json_encode($np);
 	else{
 	    xmlhttp = new ActiveXObject("Microsoft.XMLHTTP");
 	}
-	//alert(serverNo + " " + server.tabName);
-	if(start){
-	    var url =  "srvcommand.php?" +
-		"game=" + server.tabName + "&dir=" +
-	        server.serverPath;	
-	    xmlhttp.open("GET", url, false);
-	    //alert(url);
-	    xmlhttp.send();
-	    //alert(xmlhttp.responseText);
-	}
-	else{
-	    xmlhttp.open("GET", "stop" + server.shortN + ".php", false);
-	    xmlhttp.send(); 
-	}
+	
+	var url =  "srvcommand.php?cmd=" + cmd + "&game=" + server.shortN;	
+	//alert(url);
+	xmlhttp.open("GET", url, false);
+	xmlhttp.send();
+	alert(xmlhttp.responseText);
+	
 	//appendNewLines(serverList[serverNo], start);
 
  	//alert("Starting server! \n Server says: " + xmlhttp.responseText);	
@@ -448,7 +455,7 @@ echo json_encode($np);
 
 	    var op = document.getElementById('serverOutput');
 	    newDiv = document.createElement('div');
-	    newDiv.setAttribute('id', 'server' + i + 'Output');
+	    newDiv.setAttribute('id', i + 'Output');
 	    newDiv.setAttribute('style', 'z-index: 0;');
 	    
 	    server.serverNo = count;
@@ -456,7 +463,7 @@ echo json_encode($np);
 
             var ss = document.getElementById('serverStatus');
 	    newDiv = document.createElement('div');
-	    newDiv.setAttribute('id', 'server' + i + 'Status');
+	    newDiv.setAttribute('id', i + 'Status');
 	    newDiv.setAttribute('style', 'z-index: 0;');
 	    newDiv.setAttribute('class', 'singleserverstat');
 	    var tmp = document.createElement('div');
@@ -540,7 +547,12 @@ echo json_encode($np);
 			    }*/
 			    setTabRunning(server);
 			}    
-		    } 
+		    }
+		    else{
+			for(i in serverList){
+			    setTabRunning(serverList[i]);
+			}
+		    }	
 		}
 		else if(xmlhttp.status == 503){
 		    //no line server is running
@@ -556,10 +568,10 @@ echo json_encode($np);
 	
 	var count = false;
 	for(i in serverList){
-	    if(!count){ //Grab the first index out of the iterator.
-		//changeActiveServer(serverList[i]);
+	    if(serverList[i].serverNo == 0){ //Grab the first index out of the iterator.
+		changeActiveServer(serverList[i]);
+		break;
 	    }
-	    else break;
 	} 
     }
 
@@ -574,17 +586,16 @@ echo json_encode($np);
 	setTabRunning(activeServer);
 	if(oldActive){
 	    setTabRunning(oldActive);
+
+	    var ssold = document.getElementById(oldActive.shortN + 'Status');
+	    ssold.setAttribute('style', 'z-index: 0;');
+	    var soold = document.getElementById(oldActive.shortN + 'Output');
+	    //soold.style.zIndex = '0';
+	    soold.setAttribute('style', 'z-index: 0;'); 
 	}
-
-	var ssold = document.getElementById('server' + oldActive.serverNo + 'Status');
-	ssold.setAttribute('style', 'z-index: 0;');
- 	var ssnew = document.getElementById('server' + tabNumber.serverNo + 'Status'); 
+	var ssnew = document.getElementById(activeServer.shortN + 'Status');
 	ssnew.setAttribute('style', 'z-index: 10;');
-
-	var soold = document.getElementById('server' + oldActive.serverNo + 'Output');
-	//soold.style.zIndex = '0';
-	soold.setAttribute('style', 'z-index: 0;');
-	var sonew = document.getElementById('server' + tabNumber.serverNo + 'Output');
+	var sonew = document.getElementById(activeServer.shortN + 'Output');
 	//alert('server' + tabNumber + 'Output');
 	//soold.style.zIndex = '10';
 	sonew.setAttribute('style', 'z-index: 10;');

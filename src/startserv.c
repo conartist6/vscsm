@@ -16,6 +16,9 @@
 #define ERR_NO_SUCH_SERVER 1
 #define ERR_SUCCESS 0
 
+#define CONFIG_FILE_PATH "../etc/vscsm.cfg"
+//must compile in the config file directory
+
 typedef struct{
     char *line;
     int length; 
@@ -67,11 +70,12 @@ int child();
 static void* ioHandler(void*);
 void lineBufferFragAdd(console_server_t*, char*, int);
 void lineBufferAdd(console_server_t*, char*, int);
-void getInput();
 int startServer(console_server_t*);
 void incrementCurLine(console_server_t*);
 const char* strnchr(const char*, int, size_t);
 void printBuffer();
+void foreachserver(int (*run)(console_server_t*));
+void foreachrunningserver(int (*run)(console_server_t*));
 void terminate();
 int rwPOpen(char *const[], int*, int*); 
 int fdClose(FILE*);
@@ -79,6 +83,7 @@ int fdClose(FILE*);
 console_server_list_t servlist;
 const int d_buflines = 100, d_buflinlen = 100;
 pthread_t iothread;
+const char *pipepath, *lockpath;
 
 /* Create memory for and set all defaults appropriately for a console_server_t. */
 console_server_t* __console_server_t__(){
@@ -122,11 +127,12 @@ int main(){
     switch(pid){
 	case -1:
 	    printf("Could not fork!\n");
-	    exit(3);
+	    exit(3);                                            
 	    break;
 	case 0:
 	    /*child*/
-            freopen("../vscsm2.log", "w", stdout);
+            //freopen("../vscsm2.log", "w", stdout);
+	    freopen("/dev/null", "w", stdout); 
 	    freopen("/dev/null", "r", stdin);
 	    freopen("../vscsm.log", "w", stderr);    
 	    
@@ -183,23 +189,11 @@ int main(){
 }
 
 int child(){
-    FILE *lockfile;
-    int childint;
-
-    lockfile = fopen("/mnt/memory/vscsm_lineserver.lock", "w");
-    if(lockfile == NULL){
-	fprintf(stderr, "Could not open lockfile!\n");
-	terminate();
-    }
-    fprintf(lockfile, "%i\n", getpid());
-    fclose(lockfile);
-    /*printf("pid: %i\n", getpid());*/    
-
     /*Read servers config here!*/
     config_t cfg;
     config_init(&cfg);
 
-    if(! config_read_file(&cfg, "../etc/vscsm.cfg")){
+    if(! config_read_file(&cfg, CONFIG_FILE_PATH)){
 	fprintf(stderr, "%s:%d - %s\n", config_error_file(&cfg),
 		config_error_line(&cfg), config_error_text(&cfg));
 	config_destroy(&cfg);
@@ -208,21 +202,25 @@ int child(){
 
     DBGOUT("parsed config!")
 
-    config_setting_t *slist_sett;
+    config_setting_t *cfg_set;
 
-    slist_sett = config_lookup(&cfg, "servers.slist");
-    servlist.size = config_setting_length(slist_sett);
+    cfg_set = config_lookup(&cfg, "global");
+    config_setting_lookup_string(cfg_set, "pipepath", &pipepath);
+    config_setting_lookup_string(cfg_set, "lockpath", &lockpath);
+
+    fprintf(stderr, "Pipe path: %s\nLock path: %s\n", pipepath, lockpath), fflush(stderr);
+
+    cfg_set = config_lookup(&cfg, "servers.slist");
+    servlist.size = config_setting_length(cfg_set);
 
     int i;
     servlist.list = (console_server_t**)malloc(servlist.size * sizeof(console_server_t*));
 
     for(i=0; i<servlist.size; i++){
-	config_setting_t *cfg_server = config_setting_get_elem(slist_sett, i); 
+	config_setting_t *cfg_server = config_setting_get_elem(cfg_set, i); 
 
 	servlist.list[i] = __console_server_t__();
-	console_server_t *srv = servlist.list[i]; //correct now
-	
-       	//fprintf(stderr, "0x%x\n", server), fflush(stderr); //0x0 
+	console_server_t *srv = servlist.list[i]; 
 
 	config_setting_lookup_string(cfg_server, "shortname", &srv->gsn);
        	config_setting_lookup_string(cfg_server, "fullname", &srv->gamename);
@@ -243,8 +241,17 @@ int child(){
 	}
 
     }
-    DBGOUT("Parsed all server options for all servers!")	
 
+    DBGOUT("Parsed all server options for all servers!")	
+    
+    FILE *lockfile;
+    lockfile = fopen(lockpath, "w");
+    if(lockfile == NULL){
+	fprintf(stderr, "Could not open lockfile!\n");
+	terminate();
+    }
+    fprintf(lockfile, "%i\n", getpid());
+    fclose(lockfile);    
     
     //startServer(servlist.list[0]);
     
@@ -261,16 +268,11 @@ int child(){
 	nawake = 0;
 	for(i=0; i<servlist.size; i++){
 	    srv = servlist.list[i];
-	    //fprintf(stderr, "%i\n", srv->isrunning), fflush(stderr);
-	    if(srv->isrunning != 0){
-		//DBGOUT("A server was found running!")
+	    if(srv->isrunning){
 		char tbuf [10];
 		ssize_t charsRead = read(srv->rd_des, tbuf, 10);
 		if (charsRead > 0){
-		    //printf("read chars!\n");
 		    lineBufferFragAdd(srv, tbuf, charsRead);
-		    //fprintf(stderr, "got %i chars!\n");
-		    //fflush(stderr);
 		    nawake++;
 		}
 		else if(charsRead == 0){
@@ -300,7 +302,6 @@ int child(){
 	if(nawake == 0) usleep(250000);	
     }
     	
-    close(childint);
     terminate();
 }
 
@@ -414,46 +415,46 @@ void incrementCurLine(console_server_t *srv){
     }
 }
 
-int startServer(console_server_t *server){
+int startServer(console_server_t *srv){
     /* Server already has all configuration data loaded and line buffer created. Just need to run the command
      * and register with the manager that the server is running (its pid)
      */
-    //server->isrunning = 1;
-    if(server->isrunning){
+    //srv->isrunning = 1;
+    if(srv->isrunning){
 	return ERR_START_ALREADY_RUNNING;
     }
     
-    chdir(server->gamedir);
+    chdir(srv->gamedir);
     DBGOUT("changed dir")
 
     char *tpos, *cmdtemp;
     int tposn, slen, i;
     char **gamecmd;//An array of pointers to the real stuff which is stored in the temp var.
 
-    slen = strlen(server->gamecmd);
+    slen = strlen(srv->gamecmd);
     cmdtemp = (char*)malloc((slen + 2)* sizeof(char));
-    strcpy(cmdtemp, server->gamecmd);
+    strcpy(cmdtemp, srv->gamecmd);
 
     fprintf(stderr, "Starting: %s\n", cmdtemp),fflush(stderr); 
 	
     //if unknown get number of args in command
-    if(server->nargs == -1){
-	server->nargs = 0;
+    if(srv->nargs == -1){
+	srv->nargs = 0;
 	tpos = cmdtemp;
 	while(1){
 	    tpos = strchr(tpos, ' ');
 	    //DBGOUT("not still alive.")
 	    if(tpos){
-		server->nargs++;
+		srv->nargs++;
 	    }
 	    else break;
 	    tpos++;
 	}
     }//No spaces, no arguments. Add one for the base command plz.
     
-    fprintf(stderr, "Nargs: %i\n", server->nargs), fflush(stderr); 
+    fprintf(stderr, "Nargs: %i\n", srv->nargs), fflush(stderr); 
 
-    gamecmd = (char**)malloc((server->nargs + 2) * sizeof(char*));
+    gamecmd = (char**)malloc((srv->nargs + 2) * sizeof(char*));
     //plus 2 - one for the base command and one for the terminating 0    
 
     tpos = cmdtemp; //Assign temp posn to start of the string 
@@ -477,15 +478,30 @@ int startServer(console_server_t *server){
 				 //trailing space could be a problem...?
 
     int cpid;
-    cpid = rwPOpen(gamecmd, &server->rd_des, &server->wr_des);
-    fcntl(server->rd_des, F_SETFL, fcntl(server->rd_des, F_GETFL) | O_NONBLOCK);
+    cpid = rwPOpen(gamecmd, &srv->rd_des, &srv->wr_des);
+    fcntl(srv->rd_des, F_SETFL, fcntl(srv->rd_des, F_GETFL) | O_NONBLOCK);
 
     fprintf(stderr, "Spawned pid %i.\n", cpid),fflush(stderr);
-    server->isrunning = cpid;
+    srv->isrunning = cpid;
 
     free(cmdtemp);
     free(gamecmd);
     return 0;
+}
+
+int stopServer(console_server_t *srv){
+    if(srv->isrunning){//if running		    
+	close(srv->rd_des);//close descriptors.
+	close(srv->wr_des);
+	fprintf(stderr, "Killing process group %i.\n", srv->isrunning), fflush(stderr); 
+	kill(0 - srv->isrunning, SIGTERM);
+	int status;
+	waitpid(srv->isrunning, &status, 0);
+	fprintf(stderr, "Process %i exited with status %i\n", srv->isrunning, status), fflush(stderr);
+	srv->isrunning = 0; //issue group kill to neg pid of process group of leader.
+	return ERR_SUCCESS;
+    }
+    else return ERR_STOP_NOT_STARTED;//server not running. 
 }
 
 static void* ioHandler(void* t){
@@ -501,7 +517,7 @@ static void* ioHandler(void* t){
 
 	DBGOUT("blocking for next instruction")
 
-	pipedes = open("/tmp/vscsm_fifo", O_RDONLY); //blocking open
+	pipedes = open(pipepath, O_RDONLY); //blocking open
 	if(!pipedes){
 	    DBGOUT(strerror(errno))
 	}
@@ -543,7 +559,7 @@ static void* ioHandler(void* t){
 	FILE *pipe; 
 	errno=0;   
 	
-	//while((pipeint = open("/tmp/vscsm_fifo", O_WRONLY | O_NONBLOCK)) == -1){}
+	//while((pipeint = open(pipepath, O_WRONLY | O_NONBLOCK)) == -1){}
 
 	switch(opcode){
 	    //opcodes:
@@ -557,8 +573,7 @@ static void* ioHandler(void* t){
 	    case 'p':
 		{
 		    //if running, prefix line like p@css 13 cod 2@
-		    pipedes = open("/tmp/vscsm_fifo", O_WRONLY);   
-		    pipe = fdopen(pipedes, "w");
+		    pipe = fopen(pipepath, "w");
 
 		    fprintf(pipe, "p@");
 		    char sp[] = {'\0', '\0'};
@@ -609,11 +624,11 @@ static void* ioHandler(void* t){
 		    if(s){
 			msgint = startServer(s);
 			//msgint = 0;
-			pipe = fopen("/tmp/vscsm_fifo", "w"); 
+			pipe = fopen(pipepath, "w"); 
 		       	fprintf(pipe, "%s", errormsgs[msgint]); 	
 		    }
 		    else{
-			pipe = fopen("/tmp/vscsm_fifo", "w");   
+			pipe = fopen(pipepath, "w");   
 			fprintf(pipe, "%s", errormsgs[ERR_NO_SUCH_SERVER]);   
 		    }
 		}
@@ -641,20 +656,9 @@ static void* ioHandler(void* t){
 			     break; 
 			}
 		    } 
-                    pipe = fopen("/tmp/vscsm_fifo", "w");
-		    if(s && s->isrunning){//if running		    
-			close(s->rd_des);//close descriptors.
-			close(s->wr_des);
-			fprintf(stderr, "Killing process group %i.\n", s->isrunning), fflush(stderr); 
-			kill(0 - s->isrunning, SIGTERM);
-			int status;
-			waitpid(s->isrunning, &status, 0);
-			fprintf(stderr, "Process %i exited with status %i\n", s->isrunning, status), fflush(stderr);
-                        s->isrunning = 0; //issue group kill to neg pid of process group of leader.
-			fprintf(pipe, "%s", errormsgs[ERR_SUCCESS]);
-		    }
-		    else if (s){
-			fprintf(pipe, "%s", errormsgs[ERR_STOP_NOT_STARTED]);//server not running.
+                    pipe = fopen(pipepath, "w");
+		    if(s){
+			fprintf(pipe, "%s", errormsgs[stopServer(s)]);
 		    }
 		    else{
 			fprintf(pipe, "%s", errormsgs[ERR_NO_SUCH_SERVER]);
@@ -663,7 +667,7 @@ static void* ioHandler(void* t){
 		break;
 	    case 'l':
 		{
-		    pipedes = open("/tmp/vscsm_fifo", O_WRONLY);   
+		    pipedes = open(pipepath, O_WRONLY);   
 		    pipe = fdopen(pipedes, "w");
 
 		    fprintf(pipe, "l@");
@@ -691,43 +695,6 @@ static void* ioHandler(void* t){
     }    
 }
 
-void getInput(){
-    int pipe;
-    char command[200];
-    int cpos = -1;
-    fflush(stderr);
-    errno = 0;
-    pipe = open("/tmp/vscsm_fifo", O_RDONLY);
-    if(!pipe){
-	DBGOUT(strerror(errno))
-    }
-
-    while(1){	
-        char tbuf [9];
-        ssize_t charsread = read(pipe, tbuf, 8);
-	tbuf[charsread] = 0;
-        if (errno == EAGAIN && charsread == -1){
-	    break;     
-        }
-        else if (charsread > 0){
-	    strncpy(command + cpos + 1, tbuf, charsread);
-	    cpos += charsread;
-	    //printf("%s", tbuf);
-        }
-        else{
-            /*printf("break condition: charsread=%i errno=%i\n", charsread, errno);*/
-            break;
-        }      
-        errno = 0;
-    }
-    /*fprintf(stderr, "%s\n", command);
-    fflush(stderr);*/ 
-    command[cpos] = 0; /*string terminator*/
-                     //write(childwrint, command, cpos);
-    //write(STDOUT_FILENO, command, cpos); 
-    close(pipe);
-}
-
 void printBuffer(console_server_t *srv, FILE *pipe){
     int i; 
     
@@ -751,6 +718,22 @@ void printBuffer(console_server_t *srv, FILE *pipe){
 	}
 	srv->fmarker = srv->lmarker = srv->readingfrom = -1;
     }
+}
+
+void foreachserver(int (*run)(console_server_t*)){
+    int i;
+    for(i=0; i<servlist.size; i++){
+	(run)(servlist.list[i]);
+    }
+}
+
+void foreachrunningserver(int (*run)(console_server_t*)){
+    int i;
+    for(i=0; i<servlist.size; i++){
+	if(servlist.list[i]->isrunning){
+	    (run)(servlist.list[i]);
+	}
+    }   
 }
 
 const char* strnchr(const char *str, int character, size_t searchBytes){
@@ -826,7 +809,9 @@ int rwPOpen(char *const argv[], int *rd, int *wt){
 
 void terminate(){
     //printf("TERMINATING\n");
-    unlink("/mnt/memory/vscsm_lineserver.lock");
+    unlink(lockpath);
+    foreachrunningserver(stopServer); // :D
+    //KILL and wait for all running servers.
     exit(0);
 }
 
@@ -845,7 +830,7 @@ void terminate(){
  * DONE: Why does PHP script occasionally just hang
  * DONE: clear lock file on unusual (or any) shutdown, cause PHP
  *	    to do nothing if the lock file does not exist
- * TODO: avoid hanging AJAX requests (make async)
+ * DONE: avoid hanging AJAX requests (make async)
  * DONE: avoid echoing partial lines from buffer... >:(
  * DONE: Things being lost...
  * BUGFIXED: If scrollback is not cleared before first rollover, prints from 0
@@ -860,7 +845,7 @@ void terminate(){
  *
  * TODO FEATURE: Javascript should have scrollback of FIXED length.
  * N/A now: Make sure that the lineserver terminates if the underlying server does.
- * TODO: Make sure that ANY sort of termination
+ * DONE: Make sure that ANY sort of termination
  *	a) also terminates related processes
  *	b) closes out the lock file.
  * DONE: Fix multiline statements missing chunks.
@@ -882,8 +867,8 @@ void terminate(){
  *	server originate in the web interface and are propogate smoothly
  * TODO: Password protection! :o
  * TODO: Allow client to send single full buffer to server on startup instead of only update
- * TODO: Group secondly ajax transactions into one
- * DOING: unify server manager into one prog
+ * DONE: Group secondly ajax transactions into one
+ * DONE: unify server manager into one prog
  */
 
 /*
@@ -897,6 +882,10 @@ void terminate(){
  * Thought: A game server can only be started if the console server manager starts it.
  *	The csm cannot reconnect to a server that it has 'lost'.
  *	Therefore: this manager can simply keep track of game server pids.
+ * TODO MOVE THINGS INTO FUNCTIONS
+ * load name of pipe from cfg
+ * Make an additional thread that loops nonblocking waits on any running servers.
+ * Kill and wait for servers if this process is killed.
  */
 
 /*PHP IPC protocol.
@@ -923,8 +912,8 @@ void terminate(){
  * How about `8b&2^*m7@servershortname@numlines[0]' on a line by itself. It'll be fairly easy for js to match this.
  */
 
-/*Main loop:
- *
+/*
+ * Main loop:
  * check first server. Loop until all available output has been gotten.
  * check the next server.
  * if all servers don't say anything, wait.
@@ -937,106 +926,3 @@ void terminate(){
  */
 
 //code not currently in use.
-/*void readconfig(){
-    FILE *cfile;
-    int cursec;
-    int lpos = 0;
-    bool inbrkt = 0;
-     //  1: lineserver
-     // 100: servers
-     // 101: server 1
-     // etc
-     //
-    char *buf;
-    sbuf sb;
-    sb.buf = (char*)calloc(21,sizeof(char));
-    cf = fopen("./vscsm.config", "r");
-
-    //get one line, as long as the line is.
-
-
-    //ignore leading whitespace
-    while(true){	
-        malloc(201*sizeof(char)); 
-	getline(&buf, 201, cfile);
-        
-	while(true){
-	    switch(buf[lpos]){
-	    case 11: //tab
-	    case 32: //space
-		lpos++; break;
-	    case '#': goto nextline; //stop parsing line
-	    case '[': inbrkt = true; break;
-	    case ']':
-		inbrkt = false;
-		if(!strcmp("linebuffer", sb.b)){
-                    
-		}
-		break;
-	    default:
-		if(inbrkt){
-		    sbuf_add(&buf[lpos], sb);
-		}
-	    }
-	}
-nextline:
-
-    }      
-
-    //is this a section/subsection header?
-
-    //parse options into stuff.
-}
-void sbuf_add(char *str, sbuf s){
-    int i;
-    for(i=0; i<strlen(str); i++)}
-	s->b[s->used + i] = str[i];
-    }
-}
-
-int fgetline(FILE *f, char *buf){
-    int bs, bp;
-    int fpold, fpnew, nr;
-    bs = 200;
-    bp = 0;
-    nr = 0;
-    buf = (char*)calloc(bs+1, sizeof(char)); 
-    do{
-	fgetpos(f, &fpold);
-	fgets(buf + bp, bs - bp + 1, f);
-	fgetpos(f, &fpnew);
-        nr += fnew - fpold;
-
-	if(buf[bs] != 0){
-	    bp = bs;
-	    bs = ((bs - 1) * 2) + 1;
- 	    
-	    buf = realloc(buf, bs); 
-	    
-	    int i;
-	    for(i=bp; i<bs;i++){
-		buf[i] = 0;
-	    } 
-	}
-	else break;
-    }while(true); 
-}
-int fdClose(FILE *fp){
-    int fd, nfd;
-    int status;
-
-    if (fp == NULL || (fd = fileno(fp)) < 0){
-        goto out;
-    }
-    if ((nfd = dup(fd)) < 0 || (status = fclose(fp)) != 0 ||
-        dup2(nfd, fd) < 0 || close(nfd) < 0){
-        goto syserr;
-        return (0);
-    }
- 
-    out:
-         errno = EINVAL;
-    syserr:
-         return (-1);
-} 
-*/
