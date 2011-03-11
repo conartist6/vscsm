@@ -14,7 +14,7 @@
     var anyActive = false;
     lens = new Array(); 
 
-    function Server(fullname, tabname, spath){
+    function Server(fullname, tabname){
 	this.fullName=fullname;
 	/* Should sound good with "The ______ Server" */
 	this.tabName=tabname;
@@ -26,7 +26,6 @@
 	this.serverNo=0;
 	this.wasRunning=false;
 	/* Do we need to update it? */
-	this.serverPath=spath;
 	
 	this.maplist=null;
 	this.mapselectable=false;
@@ -131,12 +130,12 @@ echo json_encode($np);
 
 	serverList = new Array(); 
 	
-	addServer(new Server("Counter-Strike: Source",
-	    "cs:s", "/usr/local/srcds_l/orangebox/"));
-	addServer(new Server("Call of Duty II", "cod2", "/usr/local/cod2_ds/"));
-	addServer(new Server("Minecraft", "mcraft", "/usr/local/minecraft_ds/"));
-	addServer(new Server("Ventrillo", "vent", "/usr/local/ventsrv/"));
-        //loadCfg(serverList[0]); 
+	addServer(new Server("Counter-Strike: Source", "cs:s"));
+	addServer(new Server("Call of Duty II", "cod2"));
+	addServer(new Server("Minecraft", "mcraft"));
+	addServer(new Server("Ventrillo", "vent"));
+	addServer(new Server("test", "onetwo"));
+	//loadCfg(serverList[0]); 
 	//loadCfg(serverList[1]);
 	populateTabs();
 	appendNewLines();
@@ -220,7 +219,7 @@ echo json_encode($np);
     }
 
     function appendNewLines(){
-	//setTimeout("appendNewLines()", 1000);
+	setTimeout("appendNewLines()", 1000);
 	doAppendNewLines();
     }
 
@@ -254,22 +253,27 @@ echo json_encode($np);
 	//alert(response);
 	//alert("endl: "+ endl);
 	//alert(response.substring(2, endl));
-	var runningSrvs;
- 	//alert(response.length); 
+	var runningSrvs, runningSrvsOrd; //We have two copies of the same data!
+	runningSrvs = new Object();
+	//alert(response.length); 
 	if(endl != -1 && response.length > 2){ // 2?
-	    runningSrvs = response.substring(2, endl).split(" ");	    
+	    runningSrvsOrd = response.substring(2, endl).split(" ");	    
 	}
-	else return;	//if it is empty then return
+	else{
+	    //if it is empty stop running servers and then return
+	    stopAllRunning();
+	    return;
+	}
 	
 	//alert(runningSrvs);
 	//otherwise for each word, get next word as number of lines, append that number of lines.
 
- 	while(runningSrvs[0] != undefined){
+	for (var i = 0; i<runningSrvsOrd.length; i+= 2){
 	    //converts an array of string pairs to an array of strings indexed by shortN's.
-	    runningSrvs[runningSrvs[0]] = runningSrvs[1];
-	    runningSrvs.shift();
-	    runningSrvs.shift();
+	    runningSrvs[runningSrvsOrd[i]] = true;
+	    //alert(runningSrvs[i]);
 	}
+	//alert(runningSrvs.toString());
 
         /*for(var rs in runningSrvs){
 	    alert("runningSrvs["+rs+"] = " + runningSrvs[rs]);
@@ -279,15 +283,10 @@ echo json_encode($np);
 	response = response.substring(linestart);
 	//we should now have only lines of server reponse data and info on whose they are.
 
+	checkIfStartStop(runningSrvs);
 
-	for(serverN in serverList){
-	    var server = serverList[serverN];            //Loop thru ALL servers
-	    if(runningSrvs[server.shortN] != undefined){ //If this server's name was part of the running list...
-		server.running = true;			 //This should be the only looped code checking
-		setTabRunning(server);  	 //if a server is or is not really running	
-		server.wasRunning = true;
-	    }	    
-                /*
+        //runningSrvs.sort(function(sa, sb){if(sa.i < sb.i)return -1; else return 1;});
+               /*
 		//alert("cl: " + response.substring(0,8));
 		if(cl > 0){	
 		    lens.push(cl);
@@ -302,30 +301,67 @@ echo json_encode($np);
 		    //alert(response);
 		    o.innerHTML += "<span>\n" + response.substring(8) + "</span>";
 		    o.scrollTop = o.scrollHeight;
-	    }	
-	*/
+		    }	
+		*/ 
+
+	for(var i = 0; i<runningSrvsOrd.length; i+=2){
+	    var o, server;
+	    linestart = 0;
+	    //alert(runningSrvsOrd.toString());//.length + ", " + runningSrvsOrd[i]);
+	    server = serverList[runningSrvsOrd[i]]; //Is this ok? It SHOULD be.
+	    o = document.getElementById(server.shortN + 'Output');
+	    //alert(
+	    for(var j=0; j<runningSrvsOrd[i+1]; j++){
+		//find the j'th newline
+		linestart = response.indexOf('\n', linestart + 1);
+	    }
+	    //alert(runningSrvsOrd[i+1]);
+	    linestart += 6; //Get the br that is on the next line.
+	    //alert(response);
+	    //alert(response.substring(0,linestart));
+	    o.innerHTML += "<span>\n" + response.substring(0, linestart) +"</span>\n";
+	    o.scrollTop = o.scrollHeight;
+	    response = response.substring(linestart + 1);//Reponse is everything after what we just printed
+	}    
+    }
+    function checkIfStartStop(runningSrvs){
+ 	for(serverN in serverList){
+	    var server = serverList[serverN];            //Loop thru ALL servers
+	    /*if(server.shortN == "onetwo"){
+		alert(runningSrvs[server.shortN]);
+	}*/     
+	    if(runningSrvs[server.shortN] != undefined){ //If this server's name was part of the running list...
+		//alert(server.shortN + "was in the running list...");
+		if(server.wasRunning == false){
+		    //alert(server.shortN + " is now running"); 
+		    server.running = true;			 //This should be the only looped code checking
+		    setTabRunning(server);  	 //if a server is or is not really running	
+		    server.wasRunning = true;
+		}
+	    }	    
 	    else{
+		/*if(server.shortN == "onetwo"){
+		    alert(server.wasRunning);
+	    }*/
 		if(server.wasRunning == true){
+		    //alert(server.shortN + " was stopped.");
 		    server.running = false;
 		    setTabRunning(server);
 		    server.wasRunning = false;
 		}	    
 	    }
 	}
-
-	for(var i in runningSrvs){ //this is probably no longer in any particular order! :/
-	    var o, server;
-	    linestart = 0;
-	    server = serverList[i]; //Is this ok? It SHOULD be.
-	    o = document.getElementById(i + 'Output');
-	    for(var j=0; j<runningSrvs[i]; j++){
-		//find the j'th newline
-		linestart = response.indexOf('\n');
+    }
+    function stopAllRunning(){
+	for(serverN in serverList){
+	    var server = serverList[serverN];
+	    if(server.wasRunning == true){
+		//alert(server.shortN + " was stopped.");
+		server.running = false;
+		setTabRunning(server);
+		server.wasRunning = false;
 	    }
-	    o.innerHTML += "<span>\n" + response.substring(0, linestart) +"</span>\n";
-	    o.scrollTop = o.scrollHeight;
-	    response = response.substring(linestart + 1);
-	}    
+	}
     }
 
     function sendCommand(){
@@ -347,15 +383,13 @@ echo json_encode($np);
 	else{
 	    xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
 	}
-	xmlhttp.open("GET", "sendcommand.php?" +
+	xmlhttp.open("GET", "srvcommand.php?" +
 	    "game=" + server.shortN +
-	    "&dir=" + server.serverPath +
-	    "&command=" + command
+	    "&gcmd=" + command
 	    , false);
 	xmlhttp.send();
 	/*alert("sendcommand.php?" +
 	    "game=" + server.shortN +
-	    "&dir=" + server.serverPath +
 	    "&command=" + command);*/
 	/*alert(xmlhttp.responseText);*/
 	return false; 
@@ -425,7 +459,7 @@ echo json_encode($np);
 	//alert(url);
 	xmlhttp.open("GET", url, false);
 	xmlhttp.send();
-	alert(xmlhttp.responseText);
+	//alert(xmlhttp.responseText);
 	
 	//appendNewLines(serverList[serverNo], start);
 
@@ -719,7 +753,7 @@ echo json_encode($np);
 				    onclick='modServer("stop", activeServer)'>
 			<!--<input type="button" value=" Restart " class="daemonbutton">-->
 			<input type="button" value=" Print " class="daemonbutton"
-				    onclick='appendNewLines()'>
+				    onclick='doAppendNewLines()'>
 		    </div>
 		</div>
 	    </div>

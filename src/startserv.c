@@ -66,6 +66,8 @@ typedef struct{
 const char *errormsgs[] = {"Success", "No server with that name", "Server was already running"
     , "Server was not running"};
 
+console_server_t* __console_server_t__();
+void resetbuffer(console_server_t*);
 int child();
 static void* ioHandler(void*);
 void lineBufferFragAdd(console_server_t*, char*, int);
@@ -76,6 +78,7 @@ const char* strnchr(const char*, int, size_t);
 void printBuffer();
 void foreachserver(int (*run)(console_server_t*));
 void foreachrunningserver(int (*run)(console_server_t*));
+void terminatesig(int);
 void terminate();
 int rwPOpen(char *const[], int*, int*); 
 int fdClose(FILE*);
@@ -90,14 +93,10 @@ console_server_t* __console_server_t__(){
     console_server_t *cs;
     cs = (console_server_t*)malloc(sizeof(console_server_t));
     
-    cs->fmarker = -1;
-    cs->lmarker = -1;
-    cs->curline = 0;
-    cs->linepos = 0;
-    cs->lastunharmed = 0;
-    cs->readingfrom = -1;
     cs->nargs = -1;
     
+    resetbuffer(cs);
+
     cs->gsn = NULL;
     cs->gamename = NULL;
     cs->gamedir = NULL;
@@ -112,6 +111,15 @@ console_server_t* __console_server_t__(){
     //we will save some kind of a pid here if it is.
 
     return cs;
+}
+
+void resetbuffer(console_server_t* srv){
+    srv->fmarker = -1;
+    srv->lmarker = -1;
+    srv->curline = 0;
+    srv->linepos = 0;
+    srv->lastunharmed = 0;
+    srv->readingfrom = -1; 
 }
 
 /* Main. Forks a new process, sets new session id, redirects process IO to files, all in order to
@@ -147,7 +155,7 @@ int main(){
 	    fprintf(stderr, "pid: %i, gid: %i sid: %i\n",getpid(), getgid(), getsid(getpid()));
 	    fflush(stderr);
 
-	    graceful.sa_handler = terminate;
+	    graceful.sa_handler = terminatesig;
 	    sigemptyset(&graceful.sa_mask);
 	    graceful.sa_flags = 0x0;
 
@@ -499,6 +507,9 @@ int stopServer(console_server_t *srv){
 	waitpid(srv->isrunning, &status, 0);
 	fprintf(stderr, "Process %i exited with status %i\n", srv->isrunning, status), fflush(stderr);
 	srv->isrunning = 0; //issue group kill to neg pid of process group of leader.
+	
+	resetbuffer(srv);
+		
 	return ERR_SUCCESS;
     }
     else return ERR_STOP_NOT_STARTED;//server not running. 
@@ -515,14 +526,14 @@ static void* ioHandler(void* t){
 	instruction = (char*)malloc(instbufsz * sizeof(char));
 	//we will need to realloc if we come within 8 chars of this limit so lets make it pretty big!
 
-	DBGOUT("blocking for next instruction")
+	//DBGOUT("blocking for next instruction")
 
 	pipedes = open(pipepath, O_RDONLY); //blocking open
 	if(!pipedes){
 	    DBGOUT(strerror(errno))
 	}
 	
-	DBGOUT("received instruction")
+	//DBGOUT("received instruction")
 
 	while(1){
 	    char tbuf [9];
@@ -556,6 +567,8 @@ static void* ioHandler(void* t){
 
 	char opcode = instruction[0];
 
+	fprintf(stderr, "Processing instruction %c.\n", opcode),fflush(stderr);
+
 	FILE *pipe; 
 	errno=0;   
 	
@@ -577,6 +590,8 @@ static void* ioHandler(void* t){
 
 		    fprintf(pipe, "p@");
 		    char sp[] = {'\0', '\0'};
+		    static int foundany;
+		    foundany = 0;
 		    for(i=0; i<servlist.size; i++){
 			static console_server_t *s;
 			s = servlist.list[i];
@@ -586,9 +601,11 @@ static void* ioHandler(void* t){
 				(s->fmarker == -1)?0:s->lmarker - s->fmarker + 1: 
 				s->buf.lines + s->lmarker - s->fmarker + 1); 
 			    sp[0]=' ';
+			    foundany = 1;
 			}
 		    }
-		    fprintf(pipe, "\n");
+		    if(!foundany) break; //break without printing a newline, ex: p@
+		    fprintf(pipe, "\n"), fflush(pipe);
 		    for(i=0; i<servlist.size; i++){
 			printBuffer(servlist.list[i], pipe);
 		    }
@@ -600,7 +617,7 @@ static void* ioHandler(void* t){
 		break;
 	    case 's':
 		{   
-		    DBGOUT("Opcode: s")
+		    //DBGOUT("Opcode: s")
 		    console_server_t *s = NULL;
 		    char *endgn;
 		    int j, msgint;
@@ -699,15 +716,17 @@ void printBuffer(console_server_t *srv, FILE *pipe){
     int i; 
     
     if(srv->isrunning){
+	if(srv->fmarker == -1){
+	    return;
+	}
 	if(srv->fmarker <= srv->lmarker){ 
-	    /*output the information to identify which server this portion of the output is for.*/
 	    for(i=srv->fmarker; i<=srv->lmarker; i++){
 		srv->readingfrom = i;
 		fprintf(pipe, "%s<br />", srv->buf.buf[i].line);
 	    }
 	}
 	else{
-	    for(i=srv->fmarker; i<=srv->buf.linlen; i++){
+	    for(i=srv->fmarker; i<srv->buf.lines; i++){
 		srv->readingfrom = i;
 		fprintf(pipe, "%s<br />", srv->buf.buf[i].line);
 	    }     
@@ -807,11 +826,14 @@ int rwPOpen(char *const argv[], int *rd, int *wt){
     return -1; //(error)
 }
 
+void terminatesig(int signal){
+    fprintf(stderr, "vscsm terminated via signal %i.\n", signal),fflush(stderr);
+    terminate();
+}
+
 void terminate(){
-    //printf("TERMINATING\n");
     unlink(lockpath);
-    foreachrunningserver(stopServer); // :D
-    //KILL and wait for all running servers.
+    foreachrunningserver(stopServer);
     exit(0);
 }
 

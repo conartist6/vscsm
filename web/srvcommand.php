@@ -19,13 +19,24 @@
 
 
     if(file_exists("/mnt/memory/vscsm_lineserver.lock")){
-	if(isset($_GET['game']) && isset($_GET['cmd'])){
-	    $command = $_GET['cmd'] . "&" . $_GET['game'] . "@\0";
-	    //echo "cmd and game";
-	    //echo $command; 
-	}
-	elseif(isset($_GET['cmd'])){	    
-	    $command = $_GET['cmd'] . "@\0";
+	if(isset($_GET['cmd'])){
+	    switch($_GET['cmd']){
+		case "s":
+		case "o":
+		    if(!isset($_GET['game'])){
+			echo "invalid command";
+			exit(2);
+		    }
+		    $command = $_GET['cmd'] . "&" . $_GET['game'] . "@\0";
+		    break;
+		case "p":
+		case "l":
+	 	    $command = $_GET['cmd'] . "@\0";
+		    break;
+		default:
+		    echo "invalid command";
+		    exit(2);
+	    }
 	}
 	else{
 	    echo "invalid command";

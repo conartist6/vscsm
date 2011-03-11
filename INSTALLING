@@ -1,0 +1,29 @@
+In order to use the VSCSM you will need the following:
+Linux
+
+The vscsm binary.
+
+A configuration file, called vscsm.conf, in a location the server is configured to look for it.
+	The general syntax for this config file is libconfig's. The possible options will be given
+	in the vscsm.conf.example file.
+
+A named fifo pipe, created with the mkfifo command, in the location specified in the config
+	This pipe will need to be set up such that PHP has permissions to read and write to it.
+	If PHP is running as an apache module this means that the apache user will need to have the perms.
+	If PHP is configured not to be able to access files outside of hosted directories, the pipe will
+	need to be in a hosted directory.
+	Putting the pipe at /tmp/vscsm_fifo works fine for me.
+
+A lock file. Nothing to do here except specify a path in the config.
+
+PHP. The project was developed with PHP 5.2.14 running as an Apache module.
+
+The vscsm website, configured with the names of the servers you are running.
+	(for now the site doesn't fetch that info from the backend, but it will).
+
+srvcommand.php (part of the site), configured with the path of the FIFO pipe.
+	the srvcommand script does all the work of interacting with the named pipe.
+	If the srvcommand script can't find a lock file indicating that the C portion of
+	the application is running, it will return a 503.
+
+If you have all these things in their configured locations and permissions set appropriately, it should work!
