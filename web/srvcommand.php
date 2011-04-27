@@ -27,11 +27,20 @@
 			echo "invalid command";
 			exit(2);
 		    }
-		    $command = $_GET['cmd'] . "&" . $_GET['game'] . "@\0";
+		    $command = $_GET['cmd'] . "@" . $_GET['game'] . "@\0";
 		    break;
 		case "p":
 		case "l":
+		case "f":
 	 	    $command = $_GET['cmd'] . "@\0";
+		    break;
+		case "c":
+ 		    if(!isset($_GET['game']) || !isset($_GET['gcmd'])){
+			echo "invalid command";
+			exit(2);
+		    } 
+		    $command = $_GET['cmd'] . "@" . $_GET['game'] . "@" .
+			$_GET['gcmd'] . "\0";
 		    break;
 		default:
 		    echo "invalid command";

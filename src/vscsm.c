@@ -6,82 +6,11 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <pthread.h>
-#include <libconfig.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-
-#define DBGOUT(a) fprintf(stderr, "%s\n", a), fflush(stderr);
-#define ERR_START_ALREADY_RUNNING 2
-#define ERR_STOP_NOT_STARTED 3
-#define ERR_NO_SUCH_SERVER 1
-#define ERR_SUCCESS 0
-
-#define CONFIG_FILE_PATH "../etc/vscsm.cfg"
-//must compile in the config file directory
-
-typedef struct{
-    char *line;
-    int length; 
-} line_t; 
-
-typedef struct{
-    line_t *buf;
-    int lines;	//The number of lines in the linebuffer, IF it is conf spec'd for the srv.
-    int linlen;	//The length of each linebuffer line, if conf spec'd. 
-} line_buffer_t; 
-
-typedef struct{
-    const char* gsn; //gameshortname
-    const char* gamename; //game long name
-    const char* gamedir; //we will chdir to this before running gamecmd.
-    const char* gamecmd; //will be run literally, in gamedir.
-    int nargs;
-
-    line_buffer_t buf;	//The linebuffer to be used
-
-    int fmarker;	//The first line of data that is completely written and has not yet been transmitted.
-    int lmarker;	//The last  "
-    int curline;        //The line of data that is currently being written to by the read loop.
-    int linepos;        //The first available (unwritten) character on the curline
-    int lastunharmed;	//For sending a full buffer of output
-    int readingfrom;   //Basically mutex the lines that the io handler portions are using.
-
-    int isrunning;      //The pid of the fork'd exec, or 0 of the server is not running.
-
-    int rd_des; //for reading FROM the child process
-    int wr_des; //for writing TO the child process
-
-} console_server_t;
-
-typedef struct{
-    console_server_t **list;
-    int size;
-} console_server_list_t;
-
-typedef struct{
-    char* b;
-    int used;
-}sbuf;
-
-const char *errormsgs[] = {"Success", "No server with that name", "Server was already running"
-    , "Server was not running"};
-
-console_server_t* __console_server_t__();
-void resetbuffer(console_server_t*);
-int child();
-static void* ioHandler(void*);
-void lineBufferFragAdd(console_server_t*, char*, int);
-void lineBufferAdd(console_server_t*, char*, int);
-int startServer(console_server_t*);
-void incrementCurLine(console_server_t*);
-const char* strnchr(const char*, int, size_t);
-void printBuffer();
-void foreachserver(int (*run)(console_server_t*));
-void foreachrunningserver(int (*run)(console_server_t*));
-void terminatesig(int);
-void terminate();
-int rwPOpen(char *const[], int*, int*); 
-int fdClose(FILE*);
+#include <libconfig.h>
+#include <assert.h>
+#include "vscsm.h"
 
 console_server_list_t servlist;
 const int d_buflines = 100, d_buflinlen = 100;
@@ -101,7 +30,8 @@ console_server_t* __console_server_t__(){
     cs->gamename = NULL;
     cs->gamedir = NULL;
     cs->gamecmd = NULL;
-   
+    cs->showtab = 0;
+
     cs->isrunning = 0;
 
     cs->rd_des = 0;
@@ -234,6 +164,9 @@ int child(){
        	config_setting_lookup_string(cfg_server, "fullname", &srv->gamename);
 	config_setting_lookup_string(cfg_server, "gamedir", &srv->gamedir);
 	config_setting_lookup_string(cfg_server, "gamecmd", &srv->gamecmd);
+	config_setting_lookup_int(cfg_server, "showtab", &srv->showtab);
+	
+        //fprintf(stderr, "%s\n", srv->gamename), fflush(stderr);
 
         if(!config_setting_lookup_int(cfg_server, "bufferlines", &srv->buf.lines)){
 	    srv->buf.lines = d_buflines;
@@ -344,7 +277,7 @@ void lineBufferAdd(console_server_t *srv, char *tbuf, int fraglen){
     int tamnt; /*truncation amount*/
 
     //wait until this line is not being used by a printing function
-    while(srv->readingfrom == srv->curline);	
+    while(srv->readingfrom == srv->curline); //spinlock!   
 
     tamnt = srv->buf.linlen - srv->linepos - fraglen - 1;
     //fprintf(stderr, "linlen: %i, linepos: %i, fraglen:%i, tamnt: %i\n",
@@ -352,13 +285,11 @@ void lineBufferAdd(console_server_t *srv, char *tbuf, int fraglen){
     if(tamnt < 0){
 	char ttbuf[11];
 	strncpy(ttbuf, tbuf + fraglen + tamnt - 1, -tamnt + 1);
-	tbuf[fraglen + tamnt - 1] = 10;
+	tbuf[fraglen + tamnt - 1] = '\n';
 	fraglen += tamnt; /*since tamnt is neg*/
 	
-	//strncpy(&lb[curline][linepos], tbuf, fraglen);
 	strncpy(&srv->buf.buf[srv->curline].line[srv->linepos],tbuf, fraglen);
 	/*move non-truncated part from temporary array to actual line buffer*/
-	//lb[curline][linepos + fraglen] = 0;
 	srv->buf.buf[srv->curline].line[srv->linepos + fraglen] = 0;
 	incrementCurLine(srv);
         /*strncpy(&lb[curline][linepos], "\32\32\32\32\32", 5);
@@ -379,7 +310,7 @@ void lineBufferAdd(console_server_t *srv, char *tbuf, int fraglen){
 	incrementCurLine();
     }*/
 
-    if(srv->buf.buf[srv->curline].line[srv->linepos - 1] == 10){
+    if(srv->buf.buf[srv->curline].line[srv->linepos - 1] == '\n'){
 	srv->buf.buf[srv->curline].line[srv->linepos] = 0;
         incrementCurLine(srv);
     }	
@@ -387,6 +318,18 @@ void lineBufferAdd(console_server_t *srv, char *tbuf, int fraglen){
 
 void incrementCurLine(console_server_t *srv){
     /*always do this*/
+    int test, i = 0;
+    char* l;
+    l = srv->buf.buf[srv->curline].line;
+    while(1){
+	if(l[i] == '\0'){
+	    break;
+	}
+	//
+	//test = (l[i] == '\n' && l[i+1] == '\n');
+	//assert(!test); //this assertion COULD fail accidentally I think, but its improbable.
+	i++;
+    }
     srv->curline++;
     srv->linepos = 0;
     
@@ -477,7 +420,7 @@ int startServer(console_server_t *srv){
     *tpos = 0;			 //Null terminate this section of string.
     tpos++;			 //Start of next word. Rinse, repeat.  
     i++;
-    fprintf(stderr,"i:%i, %i < %i?\n", i, tposn, slen),fflush(stderr);
+    //fprintf(stderr,"i:%i, %i < %i?\n", i, tposn, slen),fflush(stderr);
     }while(tposn < slen);	 //Not sure if this is necessary but it can't hurt O_o.
     
     //fprintf(stderr, "i: %i\n", i),fflush(stderr); 
@@ -515,7 +458,7 @@ int stopServer(console_server_t *srv){
     else return ERR_STOP_NOT_STARTED;//server not running. 
 }
 
-static void* ioHandler(void* t){
+void* ioHandler(void* t){
     //We will always be receiving input of some sort SO.
     while(1){
 	int pipedes, instbufsz = 401;
@@ -528,6 +471,7 @@ static void* ioHandler(void* t){
 
 	//DBGOUT("blocking for next instruction")
 
+	//fprintf(stderr, "%s\n", pipepath), fflush(stderr);
 	pipedes = open(pipepath, O_RDONLY); //blocking open
 	if(!pipedes){
 	    DBGOUT(strerror(errno))
@@ -567,7 +511,7 @@ static void* ioHandler(void* t){
 
 	char opcode = instruction[0];
 
-	fprintf(stderr, "Processing instruction %c.\n", opcode),fflush(stderr);
+	//fprintf(stderr, "Processing instruction %c.\n", opcode),fflush(stderr);
 
 	FILE *pipe; 
 	errno=0;   
@@ -582,9 +526,12 @@ static void* ioHandler(void* t){
 	    // 's': _S_tart a server
 	    // 'o': st_O_p a server
 	    // 'l': _L_ist running servers
+	    // 'f': _F_ull list of running servers, including names and other info which the
+	    //		webUI may need to be properly configured.
 	    // 'h': HUP -- reload the config file
+	    // 'r': _R_egister a new web console.
 	    case 'p':
-		{
+		{ 
 		    //if running, prefix line like p@css 13 cod 2@
 		    pipe = fopen(pipepath, "w");
 
@@ -601,22 +548,98 @@ static void* ioHandler(void* t){
 				(s->fmarker == -1)?0:s->lmarker - s->fmarker + 1: 
 				s->buf.lines + s->lmarker - s->fmarker + 1); 
 			    sp[0]=' ';
+
 			    foundany = 1;
 			}
 		    }
 		    if(!foundany) break; //break without printing a newline, ex: p@
 		    fprintf(pipe, "\n"), fflush(pipe);
-		    for(i=0; i<servlist.size; i++){
-			printBuffer(servlist.list[i], pipe);
-		    }
+		    foreachrunningserver(printBuffer, (void*)pipe);
 		}
 		break;
 	    case 'f':
+		{
+ 		    pipedes = open(pipepath, O_WRONLY);   
+		    pipe = fdopen(pipedes, "w");
+
+		    fprintf(pipe, "f@\n");
+ 		    for(i=0; i<servlist.size; i++){
+			static console_server_t *s;
+			s = servlist.list[i];
+			if(s->showtab){
+			    fprintf(pipe, "%s\n", s->gsn);
+			    if(s->gamename){
+				fprintf(pipe, "%s\n", s->gamename);
+			    }
+			}
+		    }        	    
+		}
 		break;
 	    case 'c':
+		{
+ 		    fprintf(stderr, "Processing instruction %c.\n", opcode),fflush(stderr);  
+ 		    console_server_t *s = NULL;
+		    char *endgn, *endcmd;
+		    int j, msgint;
+		    //find address of @, this is game name. Start game with that name.
+		    for(i=2; i<instbufsz; i++){
+			switch(instruction[i]){
+			    case '\0':
+				pipe = fopen(pipepath, "w"); 
+				fprintf(pipe, "%s", errormsgs[ERR_INVALID_COMMAND]);
+				break;
+			    case '@':
+				endgn = &instruction[i];
+				goto fingn;
+			}
+		    }
+fingn:		    
+ 		    for(i = (endgn - instruction) + 1; i<instbufsz; i++){
+			switch(instruction[i]){
+			    case '@':
+				instruction[i] = '\0';
+			    case '\0':
+				endcmd = &instruction[i];
+				goto fincmd;
+			}
+		    }
+fincmd:		    
+		    for(j=0; j<servlist.size; j++){
+			if(!strncmp((const char*)instruction + 2,
+				    (const char*)servlist.list[j]->gsn,
+				    (int)(endgn - instruction - 2))){
+			    s=servlist.list[j];
+			    break; 
+			}
+		    }
+ 		    if(s){
+			int rv = 0, written = 0;
+			while(rv != -1 && written < endcmd - endgn){
+			    rv = write(s->wr_des, endgn + 1 + written, endcmd - endgn - written);
+			    if(rv != -1){
+				written += rv;
+				fprintf(stderr, "wrote %i out of %i\n", written,
+					endcmd - endgn),fflush(stderr);
+			    }
+			}
+			rv = write(s->wr_des, "\r\n", 2);
+			if (rv == -1){
+			    msgint = ERR_SERVER_WRITE_ERROR;
+			}
+			else msgint = ERR_SUCCESS;
+			//msgint = 0;
+			pipe = fopen(pipepath, "w"); 
+		       	fprintf(pipe, "%s", errormsgs[msgint]); 	
+		    }
+		    else{
+			pipe = fopen(pipepath, "w");   
+			fprintf(pipe, "%s", errormsgs[ERR_NO_SUCH_SERVER]);   
+		    } 
+		}
 		break;
 	    case 's':
 		{   
+ 		    fprintf(stderr, "Processing instruction %c.\n", opcode),fflush(stderr);  
 		    //DBGOUT("Opcode: s")
 		    console_server_t *s = NULL;
 		    char *endgn;
@@ -638,7 +661,7 @@ static void* ioHandler(void* t){
 			    break; 
 			}
 		    }
-		    if(s){
+ 		    if(s){
 			msgint = startServer(s);
 			//msgint = 0;
 			pipe = fopen(pipepath, "w"); 
@@ -647,11 +670,13 @@ static void* ioHandler(void* t){
 		    else{
 			pipe = fopen(pipepath, "w");   
 			fprintf(pipe, "%s", errormsgs[ERR_NO_SUCH_SERVER]);   
-		    }
+		    } 
+
 		}
 		break;
 	    case 'o':
 		{
+  	     	    fprintf(stderr, "Processing instruction %c.\n", opcode),fflush(stderr);   
 		    console_server_t *s = NULL;
                     char *endgn;
 		    int j;
@@ -700,6 +725,9 @@ static void* ioHandler(void* t){
 		}
 		break;
 	    default:
+ 		    pipedes = open(pipepath, O_WRONLY);   
+		    pipe = fdopen(pipedes, "w");
+		    fprintf(pipe, "%c@Unknown Command!", opcode);
 		break;
 	}
 
@@ -712,8 +740,9 @@ static void* ioHandler(void* t){
     }    
 }
 
-void printBuffer(console_server_t *srv, FILE *pipe){
+int printBuffer(console_server_t *srv, void *arg){
     int i; 
+    FILE *pipe = (FILE*)arg;
     
     if(srv->isrunning){
 	if(srv->fmarker == -1){
@@ -737,20 +766,31 @@ void printBuffer(console_server_t *srv, FILE *pipe){
 	}
 	srv->fmarker = srv->lmarker = srv->readingfrom = -1;
     }
+    return 0;
 }
 
-void foreachserver(int (*run)(console_server_t*)){
+void foreachserver(int (*run)(console_server_t*, void*), void* arg){
     int i;
     for(i=0; i<servlist.size; i++){
-	(run)(servlist.list[i]);
+	if(arg == NULL){
+	    ((int(*)(console_server_t*))run)(servlist.list[i]);
+	}
+	else{
+	    run(servlist.list[i], arg);
+	}
     }
 }
 
-void foreachrunningserver(int (*run)(console_server_t*)){
+void foreachrunningserver(int (*run)(console_server_t*, void*), void* arg){
     int i;
     for(i=0; i<servlist.size; i++){
 	if(servlist.list[i]->isrunning){
-	    (run)(servlist.list[i]);
+	    if(arg == NULL){
+		((int(*)(console_server_t*))run)(servlist.list[i]);
+	    }
+	    else{
+		run(servlist.list[i], arg);
+	    }
 	}
     }   
 }
@@ -833,7 +873,7 @@ void terminatesig(int signal){
 
 void terminate(){
     unlink(lockpath);
-    foreachrunningserver(stopServer);
+    foreachrunningserver((int (*)(console_server_t*, void*))stopServer, NULL);
     exit(0);
 }
 
@@ -860,54 +900,63 @@ void terminate(){
  * BUGFIXED: Random single ascii characters often end up after a space at the
  *	    end of lines O_o
  * BUGFIXED: A LOT of newlines are printed before the first real server output.
- * TODO BUG: MasterRequestRestart line is prefixed with some sort of illegal character!
  * BUGFIXED: Sometimes extra whitespace is printed.
  * BUGFIXED: First request does not get from start of server anymore...
  * BUGFIXED: Ensure that nothing crazy happens on empty requests.
- *
- * TODO FEATURE: Javascript should have scrollback of FIXED length.
- * N/A now: Make sure that the lineserver terminates if the underlying server does.
+ * DONE: N/A now: Make sure that the lineserver terminates if the underlying server does.
  * DONE: Make sure that ANY sort of termination
  *	a) also terminates related processes
  *	b) closes out the lock file.
  * DONE: Fix multiline statements missing chunks.
  * DONE: Implement command input
- * TODO FEATURE: Implement command search/cacheing
- * TODO FEATURE: Allow web interface to collect additional information:
+ * WONTFIX: Javascript should have scrollback of FIXED length.
+ * WONTFIX YET: Allow web interface to collect additional information:
  *	Number of players, server IP address, current map, hlstatsx running...
  * DONE: Multiple servers!
- * TODO: System load stats.
- * TODO: Move todos somewhere else.
+ * DONE: System load stats.
  * DONE: Make resizing JS execute on resize.
- * TODO: Security audit
- * DONE: Make sure page stays within boundaries...
- * TODO FEATURE: Integrate SteamCondenser (maybe)
+ * LATER FEATURE: Integrate SteamCondenser (maybe)
+ *	    this might be a huge "plugins" project
  * DONE: Add global fds for interrupt code to avoid repeated fs access
  * DONE: Better and more uniform strategy for PHP scripts to be called to
  *	perform any given action
+ * DONE: Group secondly ajax transactions into one
+ * DONE: unify server manager into one prog
+ *
+ * TODO BUG?: MasterRequestRestart line is prefixed with some sort of illegal character!
+ * TODO: Old spans are NOT culled right now
+ * TODO FEATURE: Implement command search/cacheing
+ * TODO: Move todos somewhere else.
+ * TODO: Security audit
+ * TODO BUG: Make sure page stays within boundaries...
+ *	    still some weird thing under linux with command input box... :/
  * TODO: Add some some sort of settings window such that the settings used for each
  *	server originate in the web interface and are propogate smoothly
  * TODO: Password protection! :o
  * TODO: Allow client to send single full buffer to server on startup instead of only update
- * DONE: Group secondly ajax transactions into one
- * DONE: unify server manager into one prog
+ * TODO: Muliple WebUI's either prevented or run properly.
+ *	to run properly we need separate info for each webUI, maybe some sort of authentication sequence?
+ * TODO: Password protection for webUI
+ * TODO: webUI configuration interface
+ *	    would be wise to force version compatibility check
+ * TODO BUG: Output from multiple servers not properly parsed into webUI boxes 
  */
 
 /*
  * TODOs for new backend multiserver support:
  * DONE This app must have a list of which servers are running and which servers are not.
- * START DONE This app must have a function to start/stop(!) a server given a linebuffer/conf object
- * TODO server stopping function.
+ * DONE This app must have a function to start/stop(!) a server given a linebuffer/conf object
+ * DONE server stopping function.
  * DONE This app must have a loop which for each running server collects output.
  * DONE Need to implement last untouched.
  * DONE BUG: Stderr for forked process still mixed with stderr for server process
  * Thought: A game server can only be started if the console server manager starts it.
  *	The csm cannot reconnect to a server that it has 'lost'.
  *	Therefore: this manager can simply keep track of game server pids.
- * TODO MOVE THINGS INTO FUNCTIONS
- * load name of pipe from cfg
- * Make an additional thread that loops nonblocking waits on any running servers.
- * Kill and wait for servers if this process is killed.
+ * DONE MOVE THINGS INTO FUNCTIONS
+ * DONE load name of pipe from cfg
+ * DONE Make an additional thread that loops nonblocking waits on any running servers.
+ * DONE Kill and wait for servers if this process is killed.
  */
 
 /*PHP IPC protocol.
@@ -924,14 +973,16 @@ void terminate(){
  * to \\ escape a \.
  * further sections of the command may eventually be needed for instances or something?
  *
- * s@css@status(null)
+ * s@css    command should return:
+ * s@status
  *
- */
-
-/*
- * Format for output for multiple servers....
- * A single escape character probably will not cut it, so perhaps a multibyte separator sequence?
- * How about `8b&2^*m7@servershortname@numlines[0]' on a line by itself. It'll be fairly easy for js to match this.
+ *
+ * f@	    command should return:
+ * f@
+ * css
+ * Counter-Strike: Source
+ * cod2
+ * Call of Duty 2
  */
 
 /*
@@ -946,5 +997,19 @@ void terminate(){
  * How do we check to see if anything has gotten a hold of us? Do we fork our own listener thread? Can we get
  * an interrupt on data availablility? Hmm...
  */
+
+/*
+ * Web console registration. For backend we will need *fmarker* and *lmarker* for each client.
+ * Might we run into interesting problems if auth code is all in PHP? I think that will be ok.
+ * Backend info on the session should include username and start time, which PHP can send via
+ * the command interface.
+ */
+
+/*
+ * needed tests:
+ * onetwo
+ * lines of len 99/100
+ */
+
 
 //code not currently in use.

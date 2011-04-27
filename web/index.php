@@ -1,14 +1,50 @@
+<?php
+/*define('QUADODO_IN_SYSTEM', true);
+require_once('qls/includes/header.php');
+$qls->Security->check_auth_page('members.php');*/ ?>
+<?php
+// Look in the USERGUIDE.html for more info
+//if ($qls->user_info['username'] != '') {
+?>
+
+<!--You are logged in as <?php //echo $qls->user_info['username']; ?><br />
+Your email address is set to <?php //echo $qls->user_info['email']; ?><br />
+There have been <b><?php //echo $qls->hits('qls/members.php'); ?></b> visits to this page.<br />
+<br />
+Currently online users (<?php //echo count($qls->online_users()); ?>): <?php //$qls->output_online_users(); ?>-->
+
+<?php
+//}
+//else {   
+//    header('Location: qls/login.php');}
+?>
+<?php
+    //Types of permissions for this page:
+    //Start/stop server
+    //Send server command.
+    //View servers
+    //View server output
+    //Server shutdown/restart/etc
+    //Create server
+    //Delete server
+    //Allowing on-the-fly server creation would be BAD for unprivs. User could start a shell!
+
+
+?>
+
+
+
 <html>
     <head>
 <link rel="stylesheet" type="text/css" href="newlayout.css" />
 <script type="text/javascript" src="flot/jquery.min.js"></script>
-<script type="text/javascript" src="flot/jquery.flot.js"></script>
+<script type="text/javascript" src="flot/jquery.flot.min.js"></script>
 <script type="text/javascript">
     window.onresize=resizeLayout;
 
     var serverList;
     var host;
-    var activeServer = 0;
+    var activeServer;
     var tc;
     var lens;
     var anyActive = false;
@@ -130,11 +166,47 @@ echo json_encode($np);
 
 	serverList = new Array(); 
 	
-	addServer(new Server("Counter-Strike: Source", "cs:s"));
+	/*addServer(new Server("Counter-Strike: Source", "cs:s"));
 	addServer(new Server("Call of Duty II", "cod2"));
 	addServer(new Server("Minecraft", "mcraft"));
 	addServer(new Server("Ventrillo", "vent"));
-	addServer(new Server("test", "onetwo"));
+	addServer(new Server("test", "onetwo"));*/
+        var xmlhttp, response; 
+	if(window.XMLHttpRequest){
+	    xmlhttp = new XMLHttpRequest();
+	}
+	else{
+	    xmlhttp = new ActiveXObject("Microsoft.XMLHTTP");
+	}
+	xmlhttp.open("GET",
+	    "srvcommand.php?cmd=f", false);
+	/*xmlhttp.onreadystatechange=function(){
+
+	}*/
+	xmlhttp.send();
+	response = xmlhttp.responseText;
+	//alert("ready? " + readyState);
+	    //if(xmlhttp.readyState == 4){ 
+		//alert("ready!");
+	if(xmlhttp.status == 200){
+	    var srvs; 
+	    if(response.length > 3){
+		srvs = response.substring(3).split("\n");
+		srvs.pop();	
+	    }
+	    for(var i=0; i<srvs.length; i+=2){
+		addServer(new Server(srvs[i+1], srvs[i]));
+	    }
+	    //alert(srvs.toString());	    
+	}
+	else if(xmlhttp.status == 503){
+	    alert("Backend was not found running.");
+	}
+	else{
+	    alert("For some reason we couldn't get in touch with PHP.");
+	}
+	//We should direct users to some sort of page that is less broken here
+	    //}
 	//loadCfg(serverList[0]); 
 	//loadCfg(serverList[1]);
 	populateTabs();
@@ -176,7 +248,7 @@ echo json_encode($np);
 
     //config files should definitely be JSON instead of this crap, or at least parsed into JSON
     //by the backend.
-    function loadCfg(server){
+    /*function loadCfg(server){
         var xmlhttp, responses; 
 	if(window.XMLHttpRequest){
 	    xmlhttp=new XMLHttpRequest();
@@ -216,10 +288,10 @@ echo json_encode($np);
 		}
 	    }
 	}
-    }
+    }*/
 
     function appendNewLines(){
-	setTimeout("appendNewLines()", 1000);
+        setTimeout("appendNewLines()", 1000);
 	doAppendNewLines();
     }
 
@@ -279,8 +351,9 @@ echo json_encode($np);
 	    alert("runningSrvs["+rs+"] = " + runningSrvs[rs]);
 	}*/ 
 
-	linestart = response.indexOf('\n') + 1;
+	linestart = endl + 1;
 	response = response.substring(linestart);
+	//alert(response.substring(0, 20));
 	//we should now have only lines of server reponse data and info on whose they are.
 
 	checkIfStartStop(runningSrvs);
@@ -297,26 +370,34 @@ echo json_encode($np);
 			sp0.parentNode.removeChild(sp0);
 			//alert("Tried to remove a child. Did it work?");
 			lens.shift(); 
-		    }
+			}
 		    //alert(response);
 		    o.innerHTML += "<span>\n" + response.substring(8) + "</span>";
 		    o.scrollTop = o.scrollHeight;
 		    }	
 		*/ 
 
-	for(var i = 0; i<runningSrvsOrd.length; i+=2){
+	for(var i = 0; i<runningSrvsOrd.length; i+=2){ //for each running server
 	    var o, server;
+	    if(runningSrvsOrd[i+1] == 0){
+		continue;
+	    } 
 	    linestart = 0;
 	    //alert(runningSrvsOrd.toString());//.length + ", " + runningSrvsOrd[i]);
 	    server = serverList[runningSrvsOrd[i]]; //Is this ok? It SHOULD be.
 	    o = document.getElementById(server.shortN + 'Output');
 	    //alert(
-	    for(var j=0; j<runningSrvsOrd[i+1]; j++){
+	    for(var j=0; j<runningSrvsOrd[i+1]; j++){ //for each line in that server
 		//find the j'th newline
-		linestart = response.indexOf('\n', linestart + 1);
+		var ind = response.indexOf('\n', linestart + 1);
+		if(ind != -1){
+		    linestart = ind + 6;
+		}
+		else break;
 	    }
 	    //alert(runningSrvsOrd[i+1]);
-	    linestart += 6; //Get the br that is on the next line.
+	    //linestart += 6; //Get the br that is on the next line.
+	    //alert("ls: " + linestart + " rso[+1]: " + runningSrvsOrd[i+1]); 
 	    //alert(response);
 	    //alert(response.substring(0,linestart));
 	    o.innerHTML += "<span>\n" + response.substring(0, linestart) +"</span>\n";
@@ -324,6 +405,7 @@ echo json_encode($np);
 	    response = response.substring(linestart + 1);//Reponse is everything after what we just printed
 	}    
     }
+
     function checkIfStartStop(runningSrvs){
  	for(serverN in serverList){
 	    var server = serverList[serverN];            //Loop thru ALL servers
@@ -352,6 +434,7 @@ echo json_encode($np);
 	    }
 	}
     }
+
     function stopAllRunning(){
 	for(serverN in serverList){
 	    var server = serverList[serverN];
@@ -370,12 +453,16 @@ echo json_encode($np);
 	cbox = document.getElementById('serverCommand');
 	command = cbox.value;
 	cbox.value = "";
-        sendThisCommand(command);
+	//alert(activeServer);
+	sendThisCommand(activeServer, command);
+	return false;
     }
 
-    function sendThisCommand(command){
-	var server = serverList[activeServer]; 
-      	command = command.replace(" ", "%20");
+    function sendThisCommand(server, command){
+	command = command.replace(" ", "%20");
+  	/*alert("srvcommand.php?" +
+	    "cmd=c&game=" + server.shortN +
+	    "&gcmd=" + command);*/
 	var xmlhttp, response; 
 	if(window.XMLHttpRequest){
 	    xmlhttp=new XMLHttpRequest();
@@ -384,13 +471,11 @@ echo json_encode($np);
 	    xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
 	}
 	xmlhttp.open("GET", "srvcommand.php?" +
-	    "game=" + server.shortN +
+	    "cmd=c&game=" + server.shortN +
 	    "&gcmd=" + command
-	    , false);
+	    , false); 
 	xmlhttp.send();
-	/*alert("sendcommand.php?" +
-	    "game=" + server.shortN +
-	    "&command=" + command);*/
+
 	/*alert(xmlhttp.responseText);*/
 	return false; 
     }
@@ -514,7 +599,7 @@ echo json_encode($np);
 
 	    ss.appendChild(newDiv);
 
-	    if(server.maplist != null){
+	    /*if(server.maplist != null){
 		var tmp2, tmp3;
 		tmp = document.createElement('form');
 		tmp.setAttribute('onsubmit', 'return false');
@@ -543,7 +628,7 @@ echo json_encode($np);
 		tmp3.appendChild(tmp2);
 		tmp.appendChild(tmp3);
 		document.getElementById('server' + i + 'Status').appendChild(tmp);
-	    }
+	    }*/
             count++;
 	}
 	
@@ -761,7 +846,7 @@ echo json_encode($np);
 	</div>
 	<div class="pagebottom">
 	    <div class="inputbox">
-		<form method="GET" action="" onSubmit="sendCommand(); return false;">
+		<form method="post" action="javascript:" onSubmit="return sendCommand()">
 		    <input type="text" name="servercommand" class="servercommand"
 			id="serverCommand" size="10" autocomplete="off" />
 		    <div class="submitbuttonbox">
