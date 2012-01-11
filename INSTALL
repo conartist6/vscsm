@@ -1,7 +1,7 @@
 In order to use the VSCSM you will need the following:
 Linux
 
-The vscsm binary.
+The vscsm binary. It uses relative search paths to find its config just now. 
 
 A configuration file, called vscsm.conf, in a location the server is configured to look for it.
 	The general syntax for this config file is libconfig's. The possible options will be given
@@ -18,8 +18,7 @@ A lock file. Nothing to do here except specify a path in the config.
 
 PHP. The project was developed with PHP 5.2.14 running as an Apache module.
 
-The vscsm website, configured with the names of the servers you are running.
-	(for now the site doesn't fetch that info from the backend, but it will).
+The vscsm website, located in the web folder, which can be symlinked or extracted into a web-accessible dir.
 
 srvcommand.php (part of the site), configured with the path of the FIFO pipe.
 	the srvcommand script does all the work of interacting with the named pipe.

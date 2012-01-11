@@ -252,7 +252,7 @@ void lineBufferFragAdd(console_server_t *srv, char *tbuf, int linelen){
 
     /* Loop through string: find newline */
 
-    nlp = strnchr(tbuf, 10, linelen);
+    nlp = strnchr(tbuf, '\n', linelen);
  
     if(nlp == NULL){
 	lineBufferAdd(srv, tbuf, linelen);

@@ -1,0 +1,8 @@
+all:
+	gcc src/vscsm.c -Wall -lconfig -lpthread -o src/vscsm
+
+debug:
+	gcc src/vscsm.c -Wall -O0 -g -lconfig -lpthread -o src/vscsm
+
+onetwo:
+	gcc src/onetwo.c -Wall -o bin/onetwo
