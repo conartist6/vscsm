@@ -1,55 +1,40 @@
 Welcome to the Very Simple Console Server Manager.
-This is a work in progress, there is no clear way to compile it,
-and although a functional version of the project exists somewhere,
-I broke the code because it desparately needed massive reorganization.
 
-The goal of this project is to provide a highly flexible application for managing console
-servers online. While the project was started with the intent of facilitating the,
-the execution and management of game servers like the source dedicated server, the project
-is meant to be much more general purpose, and ought to evolve a bit along the lines of a web
-version of the GNU screen utility. It eventually ought to support some sort of encryption
-for client server communication.
+This project is now in autohell!
 
+./configure
+make
+#run for your life
+
+I've never installed it, so its probably a bad idea to try that at this point.
+
+The goal of this project is to provide a somewhat flexible application for managing console servers online. Its most immediate usage is to allow for remote console interaction with linux-based dedicated servers for games. It is not a terminal emulator, and currently only allows transmissions of commands which can be entered as strings. The project was not designed with any clear architecture, so its direction and coding style largely follows my own path of teaching myself IPC mechanisms and web scripting among other things. The project is slowly evolving from being focused on useless hyperefficiency to being focused on more normal things like code readability and working.
 The project is set up like so:
 
-startserv:
-This is the line server for the project. Its purpose is to start other server programs and 
-collect their output. In the first draft of the project it functioned basically as an 
-advanced script for starting a program, such that it was necessary to have a different 
-binary for each server that was to be run. During the reorganization project the application 
-has been modified so that one instance of the line server can (will be able to) start or
-stop as many servers as the user wants. This simplifies communication with the web server 
-significantly, requiring only one XmlHTTP request to get information about all the running
-servers. Internally the setup of the application is as follows. Upon startup the app
-daemonizes by forking, terminating the parent fork, and following the child fork. This 
-ensures that the process is not a process groupd leader. Standard input, output, and error
-are redirected. Next the configurations are read. At this point a new thread is started.
-Thread 1 proceeds to query each running server in order and add as much output as is
-available to the buffer for that server. The second thread immediately blocks for input
-on the communication pipe for the server. Any time a command is written to that pipe
-(presumably by the webserver, but it works just as well to issue commands by hand and 
-cat output from the pipe), the server unblocks and processes it. A custom command is
-defined for starting processes which creates the appropriate pipe pairs (out and err
-are combined) and forks. A new proces group is created for each server started, and that
-id is stored for later interaction with that server/server group. 
-Requires libconfig and libpthread.
+vscsm:
+On one thread this process listens on a pipe for commands of a specified syntax to be issued by the frontend. Commands include things like starting a configured app, stopping a configured app, sending a console command to an app, listing running apps, and getting output from all running apps. Configuration is done via the vscsm.cfg file. The application's other thread fills a fixed size buffer with output from each console application.
 
 web/index.php
-The javascript in the index page is responsible for maintaining a system of objects 
-representative or the running servers, crafting AJAX requests, and displaying the responses 
-in an appropriate manner. It will also eventually have a configuration interface so that new
-servers/sessions can be configured from the frontend instead of the backend. Some amount
-of resource usage tracking has also been added to this page. Processor usage is currently
-tracked for as many processors as the server has. Memory usage will come soon.
+All frontend logic is in a mess in this file. Processor usage is currently tracked for as many processors as the server has. Memory usage will come soon.
 Requires JQuery and Flot.
 
 web/srvcommand.php
-Ajax page to construct requests to the line server. The format of these requests should be
-something like for, say, for
-Start the countersrike srouce server with name css
+PHP backend, constructs requests to the line server. The format of these requests should be something like, say,
 s@css
-or to print new output from all servers
+to start the server configured as css
+or to print new output from all servers:
 p@
+
+etc/vscsm.cfg
+The config file, in libconfig format.
+
+Future work:
+    A massive security audit.
+    Command quasi-syntax should be JSON, as well as possibly the conf file.
+    It should be possible to modify the configuration using the webUI
+    It should be possible to script tasks and/or extend the frontend.
+    My code needs to use jquery instead of it just being required to run other peoples' code
+    The backend *may* be ported to a language other than C.
 
 Author Conrad J. Buck
 conartist6 at gmail dot com
